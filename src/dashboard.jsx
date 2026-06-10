@@ -1,6 +1,7 @@
 import { useState, useEffect, Fragment } from "react";
 import { PieChart, Pie, Cell, Tooltip, AreaChart, Area, XAxis, YAxis, CartesianGrid, ResponsiveContainer } from "recharts";
-
+import { auth } from "./firebase";
+import { signOut } from "firebase/auth";
 // ── Icons ──
 const Ico = (d) => ({ size=16, className="", style={} }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className={className} style={style}>
