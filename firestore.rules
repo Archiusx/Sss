@@ -126,11 +126,67 @@ service cloud.firestore {
           || request.resource.data.updatedAt == request.time);
     }
 
+
+
+    function allowedInvestigationKeys() {
+      return [
+        'ownerId',
+        'caseId',
+        'target',
+        'type',
+        'typeLabel',
+        'status',
+        'risk',
+        'platforms',
+        'startedAt',
+        'summary',
+        'sourceCounts',
+        'data',
+        'createdAt',
+        'updatedAt'
+      ];
+    }
+
+    function validInvestigationDocument(uid) {
+      return request.resource.data.keys().hasOnly(allowedInvestigationKeys())
+        && request.resource.data.ownerId == uid
+        && request.resource.data.ownerId == request.auth.uid
+        && request.resource.data.caseId is string
+        && request.resource.data.caseId.size() > 0
+        && request.resource.data.caseId.size() <= 40
+        && request.resource.data.target is string
+        && request.resource.data.target.size() > 0
+        && request.resource.data.target.size() <= 2048
+        && request.resource.data.type is string
+        && request.resource.data.type.size() > 0
+        && request.resource.data.type.size() <= 40
+        && request.resource.data.typeLabel is string
+        && request.resource.data.typeLabel.size() > 0
+        && request.resource.data.typeLabel.size() <= 80
+        && request.resource.data.status in ['Collection', 'Analysis', 'Active', 'Completed']
+        && request.resource.data.risk in ['low', 'medium', 'high', 'critical']
+        && request.resource.data.platforms is list
+        && request.resource.data.platforms.size() <= 12
+        && request.resource.data.startedAt is string
+        && request.resource.data.summary is string
+        && request.resource.data.summary.size() <= 20000
+        && request.resource.data.sourceCounts is map
+        && request.resource.data.data is map
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time;
+    }
+
     match /users/{uid} {
       allow get: if isOwner(uid);
       allow list: if false;
       allow create: if isOwner(uid) && validUserDocument(uid);
       allow update: if isOwner(uid) && validUserUpdate(uid);
+      allow delete: if false;
+    }
+
+    match /users/{uid}/investigations/{investigationId} {
+      allow get, list: if isOwner(uid);
+      allow create, update: if isOwner(uid) && validInvestigationDocument(uid);
       allow delete: if false;
     }
 
