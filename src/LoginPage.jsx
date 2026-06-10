@@ -50,6 +50,9 @@ function authErr(code) {
     "auth/invalid-phone-number":      "Enter a valid number e.g. +91 9XXXXXXXXX.",
     "auth/code-expired":              "OTP expired. Please request a new one.",
     "auth/invalid-verification-code": "Incorrect OTP. Please check and retry.",
+    "permission-denied":           "Firestore rules blocked this write. Deploy the included firestore.rules file and try again.",
+    "failed-precondition":         "Firestore needs an index or configuration change. Check the console for details.",
+    "unavailable":                 "Firestore is temporarily unavailable. Please retry after a moment.",
   })[code] || `Error: ${code}`;
 }
 
@@ -97,14 +100,52 @@ async function saveRegisteredUserProfile(uid, profile) {
   throw lastError;
 }
 
-async function upsertUser(uid, fields, isNew = false) {
+const defaultUserProfile = (uid, fields = {}) => ({
+  uid,
+  fullName: fields.fullName || fields.displayName || auth.currentUser?.displayName || "CyIntel Operative",
+  email: fields.email || auth.currentUser?.email || "",
+  phone: fields.phone || auth.currentUser?.phoneNumber || "",
+  badgeID: fields.badgeID || "",
+  designation: fields.designation || "",
+  department: fields.department || "",
+  role: fields.role || "investigator",
+  status: "active",
+  verified: false,
+  authProvider: fields.authProvider || "email",
+  ...(fields.photoURL ? { photoURL: fields.photoURL } : {}),
+  createdAt: serverTimestamp(),
+  updatedAt: serverTimestamp(),
+  lastLogin: serverTimestamp(),
+});
+
+function mutableProfileFields(fields = {}) {
+  const allowed = ["fullName", "email", "phone", "badgeID", "designation", "department", "authProvider", "photoURL", "displayName"];
+  return Object.fromEntries(
+    Object.entries(fields).filter(([key, value]) => allowed.includes(key) && value !== undefined)
+  );
+}
+
+async function upsertUser(uid, fields = {}, isNew = false) {
+  const userRef = doc(db, "users", uid);
+
   try {
-    const payload = { lastLogin: serverTimestamp(), ...fields };
-    if (isNew) payload.createdAt = serverTimestamp();
-    
-    // Attempt transaction to Cloud Firestore
-    await setDoc(doc(db, "users", uid), payload, { merge: true });
-    console.log(`[CyIntel] Firestore profile saved successfully for UID: ${uid}`);
+    const snap = isNew ? null : await getDocFromServer(userRef).catch(() => null);
+
+    if (isNew || !snap?.exists()) {
+      const createPayload = defaultUserProfile(uid, fields);
+      await setDocAndVerify(userRef, createPayload, "User profile");
+      console.log(`[CyIntel] Firestore profile created successfully for UID: ${uid}`);
+      return;
+    }
+
+    const updatePayload = {
+      ...mutableProfileFields(fields),
+      lastLogin: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    };
+
+    await setDocAndVerify(userRef, updatePayload, "User profile");
+    console.log(`[CyIntel] Firestore profile updated successfully for UID: ${uid}`);
   } catch (e) {
     // Captures structural issues, network failures, or Permission Denied rules
     console.error("[CyIntel] CRITICAL FIRESTORE STORAGE FAILURE:", e);
@@ -296,7 +337,7 @@ export default function LoginPage() {
         photoURL: cred.user.photoURL    || "",
       };
       if (isNew) {
-        Object.assign(payload, { uid: user.uid, badgeID: "", designation: "", department: "", role: "investigator", status: "active", verified: true });
+        Object.assign(payload, { uid: user.uid, badgeID: "", designation: "", department: "", role: "investigator", status: "active", verified: false });
         await upsertUser(user.uid, payload, true);
         await pushNotification(user.uid, "Welcome to CyIntel. Please complete your profile.", "info");
       } else {
