@@ -325,45 +325,44 @@ export default function LoginPage() {
     if (regBadge.length < 4)    { setRegAlert({ msg: "Please enter a valid Badge / Employee ID.", type: "error" }); return; }
     if (regPhone && !validPhone(regPhone)) { setRegAlert({ msg: "Enter a valid phone number or leave it blank.", type: "error" }); return; }
 
-    setLoad("register", true);
-try {
-  const cred = await createUserWithEmailAndPassword(auth, regEmail, regPassword);
-  const user = cred.user;
-  await updateProfile(user, { displayName: sanitize(regName) });
-  
-  // 1. Build the complete profiling data structure
-  const profile = {
-    uid: user.uid,
-    fullName: sanitize(regName),
-    email: regEmail,
-    phone: regPhone || "",
-    badgeID: sanitize(regBadge.toUpperCase()),
-    designation: regDesig,
-    department: regDept,
-    role: ROLE_MAP[regDesig] || "investigator",
-    status: "active",
-    verified: false,
-    authProvider: "email",
-    createdAt: serverTimestamp() // Track registration time for profiling
-  };
+   setLoad("register", true);
+    try {
+      const cred = await createUserWithEmailAndPassword(auth, regEmail, regPassword);
+      const user = cred.user;
+      await updateProfile(user, { displayName: sanitize(regName) });
+      
+      const profile = {
+        uid: user.uid,
+        fullName: sanitize(regName),
+        email: regEmail,
+        phone: regPhone || "",
+        badgeID: sanitize(regBadge.toUpperCase()),
+        designation: regDesig,
+        department: regDept,
+        role: ROLE_MAP[regDesig] || "investigator",
+        status: "active",
+        verified: false,
+        authProvider: "email",
+        createdAt: serverTimestamp()
+      };
 
-  // 2. Direct bulletproof write to Cloud Firestore 'users' collection
-  await setDoc(doc(db, "users", user.uid), profile, { merge: true });
+      // Direct write to Cloud Firestore
+      await setDoc(doc(db, "users", user.uid), profile, { merge: true });
 
-  // 3. Maintain your existing secondary systems undisturbed
-  if (typeof upsertUser === "function") {
-    await upsertUser(user.uid, profile, true);
-  }
-  await setUserPresence(user.uid, regName);
-  await pushNotification(user.uid, "Account registered. Pending admin verification.", "info");
-  
-  setRegAlert({ msg: "Account registered! Loading dashboard…", type: "success" });
-} catch (e) {
-  console.error("Detailed registration failure:", e);
-  setRegAlert({ msg: authErr(e.code), type: "error" });
-} finally {
-  setLoad("register", false);
-}
+      if (typeof upsertUser === "function") {
+        await upsertUser(user.uid, profile, true);
+      }
+      await setUserPresence(user.uid, regName);
+      await pushNotification(user.uid, "Account registered. Pending admin verification.", "info");
+      
+      setRegAlert({ msg: "Account registered! Loading dashboard…", type: "success" });
+    } catch (e) {
+      console.error("Detailed registration failure:", e);
+      setRegAlert({ msg: authErr(e.code), type: "error" });
+    } finally {
+      setLoad("register", false);
+    }
+  } // <--- CRITICAL: This brace closes your outer registration function. Do not delete it.
 
   // ── Enter key support ──────────────────────────────────────────────────────
   useEffect(() => {
