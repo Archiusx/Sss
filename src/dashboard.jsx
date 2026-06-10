@@ -1,6 +1,7 @@
 import { useState, useEffect, Fragment } from "react";
 import { PieChart, Pie, Cell, Tooltip, AreaChart, Area, XAxis, YAxis, CartesianGrid, ResponsiveContainer } from "recharts";
 import { auth } from "./firebase";
+import { runPublicOsintInvestigation, detectTargetType } from "./osintTools";
 import { signOut } from "firebase/auth";
 // ── Icons ──
 const Ico = (d) => ({ size=16, className="", style={} }) => (
@@ -323,9 +324,19 @@ function TopNav({ activePage, setActivePage, dark, setDark, setSidebarOpen, user
 }
 
 // ── Dashboard Page ──
-function DashboardPage({ setActivePage }) {
+function DashboardPage({ setActivePage, onStartInvestigation, investigation }) {
   const [searchTab, setSearchTab] = useState("username");
   const [searchVal, setSearchVal] = useState("");
+  const [searchError, setSearchError] = useState("");
+  const startSearch = async () => {
+    const value = searchVal.trim();
+    if (!value) {
+      setSearchError("Enter a target identifier first.");
+      return;
+    }
+    setSearchError("");
+    await onStartInvestigation({ target: value, type: detectTargetType(value, searchTab) });
+  };
   const searchTabs = [
     { id:"username", label:"Username", icon:AtSign }, { id:"email", label:"Email", icon:Mail },
     { id:"phone", label:"Phone", icon:Phone }, { id:"url", label:"Profile URL", icon:LinkIcon },
@@ -353,12 +364,12 @@ function DashboardPage({ setActivePage }) {
         <div className="flex gap-1 p-1 rounded-lg w-fit mb-4" style={{ backgroundColor:"#f8fafc" }}>
           {searchTabs.map(({ id, label, icon:Ic })=><button key={id} onClick={()=>setSearchTab(id)} className={cn("flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all", searchTab===id?"bg-white text-slate-800 shadow-sm":"text-slate-500 hover:text-slate-700")}><Ic size={12}/>{label}</button>)}
         </div>
-        {searchTab==="image"
-          ? <div className="flex items-center justify-center border-2 border-dashed border-slate-200 rounded-xl h-24 cursor-pointer hover:border-blue-300 transition-all"><div className="text-center"><Upload size={20} className="text-slate-300 mx-auto mb-1"/><p className="text-slate-400 text-xs">Drop profile image or click to upload</p></div></div>
-          : <div className="flex gap-3">
-              <div className="flex-1 relative"><Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/><input value={searchVal} onChange={e=>setSearchVal(e.target.value)} placeholder={`Search by ${searchTabs.find(t=>t.id===searchTab)?.label.toLowerCase()}…`} className="w-full pl-9 pr-4 py-2.5 rounded-lg text-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-200 transition-all" style={{ background:"var(--bg-input)", border:"1px solid var(--border)", color:"var(--text-primary)" }}/></div>
-              <button onClick={()=>setActivePage("osint")} className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium flex items-center gap-2 transition-colors"><Zap size={14}/>Investigate</button>
-            </div>}
+        <div className="flex gap-3">
+          <div className="flex-1 relative">{searchTab==="image" ? <Upload size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/> : <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/>}<input value={searchVal} onChange={e=>setSearchVal(e.target.value)} placeholder={searchTab==="image" ? "Paste a public image URL to investigate…" : `Search by ${searchTabs.find(t=>t.id===searchTab)?.label.toLowerCase()}…`} className="w-full pl-9 pr-4 py-2.5 rounded-lg text-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-200 transition-all" style={{ background:"var(--bg-input)", border:"1px solid var(--border)", color:"var(--text-primary)" }}/></div>
+          <button onClick={startSearch} className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium flex items-center gap-2 transition-colors"><Zap size={14}/>Investigate</button>
+        </div>
+            {searchError && <div className="mt-2 text-xs text-red-500">{searchError}</div>}
+            {investigation && <div className="mt-3 rounded-lg px-3 py-2 text-xs text-blue-700 bg-blue-50 border border-blue-100">Latest case <span className="font-mono font-semibold">{investigation.id}</span> is ready for <button onClick={()=>setActivePage("osint")} className="underline font-semibold">review</button>.</div>}
       </div>
     </div>
     <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -430,59 +441,112 @@ function DashboardPage({ setActivePage }) {
 }
 
 // ── OSINT Page ──
-function OSINTPage({ setActivePage }) {
+function OSINTPage({ setActivePage, investigation, investigationLoading, investigationError, onStartInvestigation }) {
+  const [target, setTarget] = useState("");
+  const [type, setType] = useState("username");
   const steps = ["Input","Collection","Correlation","Analysis","Report"];
-  const currentStep = 1;
+  const currentStep = investigation ? 3 : investigationLoading ? 1 : 0;
   const statusIcon = s => {
     if (s==="found") return <CheckCircle2 size={14} className="text-green-500"/>;
-    if (s==="collecting"||s==="searching") return <Loader2 size={14} className={`${s==="collecting"?"text-blue-500":"text-amber-500"} animate-spin`}/>;
+    if (s==="open_link") return <ExternalLink size={14} className="text-blue-500"/>;
+    if (s==="not_found") return <AlertTriangle size={14} className="text-amber-500"/>;
     return <Circle size={14} className="text-slate-300"/>;
   };
   const statusLabel = s => {
-    if (s==="found") return { text:"Data Found", cls:"bg-green-50 text-green-700 ring-1 ring-green-200" };
-    if (s==="collecting") return { text:"Collecting…", cls:"bg-blue-50 text-blue-700 ring-1 ring-blue-200" };
-    if (s==="searching") return { text:"Searching…", cls:"bg-amber-50 text-amber-700 ring-1 ring-amber-200" };
+    if (s==="found") return { text:"Confirmed", cls:"bg-green-50 text-green-700 ring-1 ring-green-200" };
+    if (s==="open_link") return { text:"Manual Check", cls:"bg-blue-50 text-blue-700 ring-1 ring-blue-200" };
+    if (s==="not_found") return { text:"Not Confirmed", cls:"bg-amber-50 text-amber-700 ring-1 ring-amber-200" };
     return { text:"Pending", cls:"bg-slate-100 text-slate-500" };
   };
   const logColor = l => l==="success"?"text-green-400":l==="warn"?"text-amber-400":"text-slate-400";
   const logDot = l => l==="success"?"bg-green-500":l==="warn"?"bg-amber-500":"bg-blue-500";
-  const totalFound = osintPlatforms.reduce((a,p)=>a+p.count, 0);
+  const runSearch = async () => {
+    await onStartInvestigation({ target, type: detectTargetType(target, type) });
+  };
+  const targetRows = investigation ? [
+    { label:"Target", val:investigation.target, icon:Target },
+    { label:"Type", val:investigation.type, icon:Hash },
+    { label:"Case ID", val:investigation.id, icon:FileText },
+    { label:"Status", val:investigation.status, icon:CheckCircle2 },
+  ] : [
+    { label:"Username", val:"@example_handle", icon:AtSign },
+    { label:"Email", val:"name@example.com", icon:Mail },
+    { label:"Phone", val:"+1 555 0100", icon:Phone },
+    { label:"Profile URL", val:"https://example.com/profile", icon:LinkIcon },
+  ];
+  const metadata = investigation?.metadata || [["Collection Mode","Public web / open-source only"],["Gemini Search","Add VITE_GEMINI_API_KEY to enable"],["Privacy Guardrail","No private databases or intrusive enrichment"],["Output","Source links and manual verification checklist"]];
+  const findings = investigation?.findings || [];
+  const stats = investigation?.stats || { foundProfiles:0, candidateProfiles:0, searchLinks:0, sources:0, confidence:0 };
+  const tools = investigation?.tools || [];
+  const logs = investigation?.logs || activityLog.slice(0, 4).map((entry)=>({ ...entry, msg: entry.msg.replace(/@darkweb_trader|darkweb_trader/g, "the target") }));
+  const sourceLinks = investigation?.gemini?.sources || [];
+  const searchLinks = investigation?.searchLinks || [];
+
   return <div className="p-6 space-y-5">
     <div className="bg-white rounded-xl px-6 py-4 shadow-sm" style={V.card}>
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2"><span className="text-slate-500 text-xs">Case:</span><span className="text-blue-600 font-medium text-xs" style={{ fontFamily:"monospace" }}>INV-2024-089</span><span className="text-slate-300">·</span><span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"/><span className="text-green-600 text-xs font-medium">Live Collection</span></div>
-        <div className="flex items-center gap-1">{steps.map((s,i)=><div key={s} className="flex items-center"><div className={cn("flex items-center justify-center w-6 h-6 rounded-full font-bold", i<currentStep?"bg-blue-600 text-white":i===currentStep?"bg-blue-100 text-blue-700 ring-2 ring-blue-400":"bg-slate-100 text-slate-400")} style={{ fontSize:10 }}>{i<currentStep?<Check size={10}/>:i+1}</div><span className={cn("hidden sm:block mx-1.5", i===currentStep?"text-blue-600 font-medium":"text-slate-400")} style={{ fontSize:10 }}>{s}</span>{i<steps.length-1&&<div className={cn("w-6 h-px", i<currentStep?"bg-blue-300":"bg-slate-200")}/>}</div>)}</div>
+      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+        <div className="flex items-center gap-2"><span className="text-slate-500 text-xs">Case:</span><span className="text-blue-600 font-medium text-xs" style={{ fontFamily:"monospace" }}>{investigation?.id || "NEW-CASE"}</span><span className="text-slate-300">·</span><span className={cn("w-2 h-2 rounded-full", investigationLoading?"bg-blue-500 animate-pulse":investigation?"bg-green-500":"bg-slate-300")}/><span className={cn("text-xs font-medium", investigationLoading?"text-blue-600":investigation?"text-green-600":"text-slate-500")}>{investigationLoading ? "Collecting" : investigation ? "Ready" : "Awaiting Target"}</span></div>
+        <div className="flex items-center gap-1 stepper-bar">{steps.map((s,i)=><div key={s} className="flex items-center"><div className={cn("flex items-center justify-center w-6 h-6 rounded-full font-bold", i<currentStep?"bg-blue-600 text-white":i===currentStep?"bg-blue-100 text-blue-700 ring-2 ring-blue-400":"bg-slate-100 text-slate-400")} style={{ fontSize:10 }}>{i<currentStep?<Check size={10}/>:i+1}</div><span className={cn("hidden sm:block mx-1.5", i===currentStep?"text-blue-600 font-medium":"text-slate-400")} style={{ fontSize:10 }}>{s}</span>{i<steps.length-1&&<div className={cn("w-6 h-px", i<currentStep?"bg-blue-300":"bg-slate-200")}/>}</div>)}</div>
       </div>
     </div>
+
+    <div className="rounded-xl p-5 shadow-sm" style={V.card}>
+      <div className="flex items-center gap-2 mb-3"><Search size={15} className="text-blue-600"/><h3 className="font-semibold text-sm" style={{ color:"var(--text-primary)" }}>Run Public OSINT Search</h3></div>
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-3">
+        <select value={type} onChange={(e)=>setType(e.target.value)} className="rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200" style={{ background:"var(--bg-input)", border:"1px solid var(--border)", color:"var(--text-primary)" }}>
+          <option value="username">Username</option><option value="email">Email</option><option value="phone">Phone</option><option value="profile">Profile URL</option><option value="keyword">Keyword</option><option value="image">Image URL</option>
+        </select>
+        <input value={target} onChange={(e)=>setTarget(e.target.value)} onKeyDown={(e)=>{ if(e.key==="Enter") runSearch(); }} placeholder="Enter username, email, phone, URL, keyword, or image URL…" className="lg:col-span-3 rounded-lg px-3 py-2.5 text-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-200" style={{ background:"var(--bg-input)", border:"1px solid var(--border)", color:"var(--text-primary)" }}/>
+        <button disabled={investigationLoading} onClick={runSearch} className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white rounded-lg text-sm font-medium flex items-center justify-center gap-2 transition-colors">{investigationLoading ? <Loader2 size={14} className="animate-spin"/> : <Zap size={14}/>}Investigate</button>
+      </div>
+      <p className="mt-3 text-xs text-slate-500">Uses public search links, open-source OSINT tools, GitHub's public API, and optional Gemini grounded web search. Add <span className="font-mono">VITE_GEMINI_API_KEY</span> in your environment; do not hard-code API keys in the client.</p>
+      {investigationError && <div className="mt-3 rounded-lg px-3 py-2 bg-red-50 text-red-600 border border-red-100 text-xs">{investigationError}</div>}
+    </div>
+
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
       <div className="space-y-4">
         <div className="rounded-xl shadow-sm" style={V.card}>
           <div className="px-5 py-4" style={V.inner}><h3 className="font-semibold text-sm" style={{ color:"var(--text-primary)" }}>Target Details</h3></div>
           <div className="px-5 py-4 space-y-3">
-            {[{ label:"Username", val:"@darkweb_trader", icon:AtSign },{ label:"Email", val:"—", icon:Mail },{ label:"Phone", val:"—", icon:Phone },{ label:"Profile URL", val:"x.com/darkweb_trader", icon:LinkIcon }].map(({ label, val, icon:Ic })=><div key={label}><label className="font-medium uppercase tracking-wide block mb-1" style={{ fontSize:11, color:"#94a3b8" }}>{label}</label><div className="flex items-center gap-2 px-3 py-2 rounded-lg" style={V.card}><Ic size={12} className="text-slate-400"/><span className="text-slate-600 text-xs" style={{ fontFamily:"monospace" }}>{val}</span></div></div>)}
+            {targetRows.map(({ label, val, icon:Ic })=><div key={label}><label className="font-medium uppercase tracking-wide block mb-1" style={{ fontSize:11, color:"#94a3b8" }}>{label}</label><div className="flex items-center gap-2 px-3 py-2 rounded-lg" style={V.card}><Ic size={12} className="text-slate-400"/><span className="text-slate-600 text-xs break-all" style={{ fontFamily:"monospace" }}>{val}</span></div></div>)}
           </div>
         </div>
         <div className="rounded-xl p-5 shadow-sm" style={V.card}>
-          <h3 className="text-slate-800 font-semibold text-sm mb-3">Extracted Metadata</h3>
-          <div className="space-y-2">{[["Timezone","UTC+8 (Asia/Shanghai)"],["Language","English (US)"],["Device","Android 14 · Chrome 120"],["IP Range","Redacted (VPN detected)"],["First Seen","Nov 12, 2024"],["Last Active","Dec 05, 2024 · 02:41"]].map(([k,v])=><div key={k} className="flex justify-between items-start gap-2"><span className="text-slate-400 flex-shrink-0" style={{ fontSize:11 }}>{k}</span><span className="text-slate-600 text-right" style={{ fontSize:11, fontFamily:"monospace" }}>{v}</span></div>)}</div>
+          <h3 className="text-slate-800 font-semibold text-sm mb-3">Collection Metadata</h3>
+          <div className="space-y-2">{metadata.map(([k,v])=><div key={k} className="flex justify-between items-start gap-2"><span className="text-slate-400 flex-shrink-0" style={{ fontSize:11 }}>{k}</span><span className="text-slate-600 text-right break-all" style={{ fontSize:11, fontFamily:"monospace" }}>{v}</span></div>)}</div>
+        </div>
+        <div className="rounded-xl p-5 shadow-sm" style={V.card}>
+          <h3 className="text-slate-800 font-semibold text-sm mb-3">Open Source Tools</h3>
+          <div className="space-y-2">{(tools.length?tools:[{name:"WhatsMyName",url:"https://whatsmyname.app/",note:"Username checks"},{name:"Sherlock",url:"https://github.com/sherlock-project/sherlock",note:"Open-source CLI"},{name:"Google Lens",url:"https://lens.google/",note:"Reverse image search"}]).map(tool=><a key={tool.name} href={tool.url} target="_blank" rel="noreferrer" className="block rounded-lg p-3 hover:bg-slate-50" style={{ border:"1px solid var(--border)" }}><div className="flex items-center justify-between gap-2"><span className="text-xs font-semibold text-slate-700">{tool.name}</span><ExternalLink size={12} className="text-slate-400"/></div><p className="text-slate-400 mt-1" style={{ fontSize:10 }}>{tool.note}</p></a>)}</div>
         </div>
       </div>
       <div className="lg:col-span-2 space-y-4">
-        <div className="grid grid-cols-3 gap-3">{[{ label:"Profiles Found", value:totalFound, color:"text-green-600", bg:"bg-green-50" },{ label:"Platforms Active", value:"7 / 8", color:"text-blue-600", bg:"bg-blue-50" },{ label:"Collection", value:"74%", color:"text-indigo-600", bg:"bg-indigo-50" }].map(({ label, value, color, bg })=><div key={label} className={cn("rounded-xl px-4 py-3 shadow-sm")} style={V.card}><div className={cn("text-lg font-bold tabular-nums", color)} style={{ fontFamily:"monospace" }}>{value}</div><div className="text-xs mt-0.5" style={{ color:"var(--text-muted)" }}>{label}</div></div>)}</div>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">{[{ label:"Confirmed", value:stats.foundProfiles, color:"text-green-600" },{ label:"Candidates", value:stats.candidateProfiles, color:"text-blue-600" },{ label:"Search Links", value:stats.searchLinks, color:"text-indigo-600" },{ label:"Confidence", value:`${stats.confidence}%`, color:"text-amber-600" }].map(({ label, value, color })=><div key={label} className="rounded-xl px-4 py-3 shadow-sm" style={V.card}><div className={cn("text-lg font-bold tabular-nums", color)} style={{ fontFamily:"monospace" }}>{value}</div><div className="text-xs mt-0.5" style={{ color:"var(--text-muted)" }}>{label}</div></div>)}</div>
         <div className="rounded-xl shadow-sm" style={V.card}>
-          <div className="flex items-center justify-between px-5 py-3.5" style={V.inner}><h3 className="font-semibold text-sm" style={{ color:"var(--text-primary)" }}>Platform Collection Status</h3><div className="flex items-center gap-1.5 text-xs text-blue-600"><Loader2 size={12} className="animate-spin"/><span>Scanning…</span></div></div>
-          <div className="grid grid-cols-2 gap-3 p-4">{osintPlatforms.map(p=>{
+          <div className="flex items-center justify-between px-5 py-3.5" style={V.inner}><h3 className="font-semibold text-sm" style={{ color:"var(--text-primary)" }}>Public Platform Checks</h3><div className="flex items-center gap-1.5 text-xs text-blue-600">{investigationLoading?<Loader2 size={12} className="animate-spin"/>:<Globe size={12}/>}<span>{findings.length || 0} checks</span></div></div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 p-4">{findings.length ? findings.map((p,i)=>{
             const sl = statusLabel(p.status);
-            return <div key={p.id} className="rounded-xl p-3.5 cursor-pointer" style={{ border:"1px solid #e2e8f0", backgroundColor:p.status==="found"?"#f8fff8":"#fafafa" }}>
-              <div className="flex items-start justify-between mb-2"><div className="flex items-center gap-2"><PlatformPill abbr={p.abbr} color={p.color}/><span className="text-slate-700 text-xs font-semibold">{p.name}</span></div>{statusIcon(p.status)}</div>
-              <div className="flex items-center justify-between"><span className={cn("font-medium px-2 py-0.5 rounded-full", sl.cls)} style={{ fontSize:10 }}>{sl.text}</span>{p.count>0&&<span className="font-bold text-slate-600 tabular-nums" style={{ fontSize:11, fontFamily:"monospace" }}>{p.count} acct{p.count>1?"s":""}</span>}</div>
-              {p.details.length>0&&<div className="mt-2 space-y-0.5">{p.details.map(d=><div key={d} className="text-slate-400 truncate" style={{ fontSize:10, fontFamily:"monospace" }}>{d}</div>)}</div>}
-            </div>;
-          })}</div>
+            return <a key={`${p.platform}-${i}`} href={p.url} target="_blank" rel="noreferrer" className="rounded-xl p-3.5 cursor-pointer hover:shadow-sm transition-all" style={{ border:"1px solid #e2e8f0", backgroundColor:p.status==="found"?"#f8fff8":"#fafafa" }}>
+              <div className="flex items-start justify-between mb-2"><div className="flex items-center gap-2"><PlatformPill abbr={p.abbr || p.platform.slice(0,2).toUpperCase()} color={p.color || "#2563eb"}/><span className="text-slate-700 text-xs font-semibold">{p.platform}</span></div>{statusIcon(p.status)}</div>
+              <div className="flex items-center justify-between gap-2"><span className={cn("font-medium px-2 py-0.5 rounded-full", sl.cls)} style={{ fontSize:10 }}>{sl.text}</span><ExternalLink size={12} className="text-slate-400"/></div>
+              <div className="mt-2 text-slate-500" style={{ fontSize:11 }}>{p.snippet}</div>
+            </a>;
+          }) : <div className="col-span-full rounded-xl p-6 text-center text-slate-400 text-sm" style={{ border:"1px dashed var(--border)" }}>Run an investigation to populate public profile checks.</div>}</div>
         </div>
         <div className="rounded-xl shadow-sm" style={V.card}>
-          <div className="flex items-center justify-between px-5 py-3.5" style={V.inner}><h3 className="font-semibold text-sm" style={{ color:"var(--text-primary)" }}>Live Activity Log</h3><div className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"/><span className="text-xs text-green-600 font-medium">Live</span></div></div>
-          <div className="px-4 py-3 space-y-2" style={{ maxHeight:192, overflowY:"auto" }}>{activityLog.map((entry,i)=><div key={i} className="flex items-start gap-3"><span className="tabular-nums text-slate-400 pt-0.5 flex-shrink-0" style={{ fontSize:10, width:64, fontFamily:"monospace" }}>{entry.time}</span><span className={cn("w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0", logDot(entry.level))}/><span className={cn("leading-relaxed", logColor(entry.level))} style={{ fontSize:11 }}>{entry.msg}</span></div>)}</div>
+          <div className="flex items-center justify-between px-5 py-3.5" style={V.inner}><h3 className="font-semibold text-sm" style={{ color:"var(--text-primary)" }}>Gemini Grounded Web Search</h3><span className="text-xs text-slate-400">{sourceLinks.length} sources</span></div>
+          <div className="p-4 space-y-3">
+            <div className="rounded-xl p-4 text-sm leading-relaxed whitespace-pre-wrap" style={{ background:"var(--bg-input)", color:"var(--text-sec)", border:"1px solid var(--border)" }}>{investigation?.gemini?.summary || "Add VITE_GEMINI_API_KEY and run a search to get Gemini web-grounded findings with citations."}</div>
+            {sourceLinks.length>0 && <div className="grid grid-cols-1 md:grid-cols-2 gap-2">{sourceLinks.slice(0,8).map((src,i)=><a key={`${src.url}-${i}`} href={src.url} target="_blank" rel="noreferrer" className="flex items-center gap-2 rounded-lg px-3 py-2 text-xs text-blue-700 bg-blue-50 border border-blue-100 hover:bg-blue-100"><ExternalLink size={12}/><span className="truncate">{src.title}</span></a>)}</div>}
+          </div>
+        </div>
+        <div className="rounded-xl shadow-sm" style={V.card}>
+          <div className="flex items-center justify-between px-5 py-3.5" style={V.inner}><h3 className="font-semibold text-sm" style={{ color:"var(--text-primary)" }}>Search Operators</h3><span className="text-xs text-slate-400">Open in new tabs</span></div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 p-4">{searchLinks.length ? searchLinks.slice(0,12).map((link,i)=><a key={`${link.engine}-${i}`} href={link.url} target="_blank" rel="noreferrer" className="rounded-lg px-3 py-2 hover:bg-slate-50" style={{ border:"1px solid var(--border)" }}><div className="flex items-center justify-between gap-2"><span className="text-xs font-semibold text-slate-700">{link.engine}</span><ExternalLink size={12} className="text-slate-400"/></div><div className="text-slate-400 truncate mt-1" style={{ fontSize:10, fontFamily:"monospace" }}>{link.query}</div></a>) : <div className="col-span-full text-center text-slate-400 text-sm py-6">Search links will appear here after a run.</div>}</div>
+        </div>
+        <div className="rounded-xl shadow-sm" style={V.card}>
+          <div className="flex items-center justify-between px-5 py-3.5" style={V.inner}><h3 className="font-semibold text-sm" style={{ color:"var(--text-primary)" }}>Activity Log</h3><div className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"/><span className="text-xs text-green-600 font-medium">Live</span></div></div>
+          <div className="px-4 py-3 space-y-2" style={{ maxHeight:192, overflowY:"auto" }}>{logs.map((entry,i)=><div key={i} className="flex items-start gap-3"><span className="tabular-nums text-slate-400 pt-0.5 flex-shrink-0" style={{ fontSize:10, width:64, fontFamily:"monospace" }}>{entry.time}</span><span className={cn("w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0", logDot(entry.level))}/><span className={cn("leading-relaxed", logColor(entry.level))} style={{ fontSize:11 }}>{entry.msg}</span></div>)}</div>
         </div>
         <button onClick={()=>setActivePage("ai-analysis")} className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium transition-colors"><Brain size={15}/>Proceed to AI Analysis<ChevronRight size={14}/></button>
       </div>
@@ -767,6 +831,22 @@ const handleLogout = async () => {
   
   const [activePage, setActivePage] = useState("dashboard");
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [investigation, setInvestigation] = useState(null);
+  const [investigationLoading, setInvestigationLoading] = useState(false);
+  const [investigationError, setInvestigationError] = useState("");
+  const handleStartInvestigation = async ({ target, type }) => {
+    setInvestigationError("");
+    setInvestigationLoading(true);
+    setActivePage("osint");
+    try {
+      const result = await runPublicOsintInvestigation({ target, type });
+      setInvestigation(result);
+    } catch (error) {
+      setInvestigationError(error.message || "Investigation failed.");
+    } finally {
+      setInvestigationLoading(false);
+    }
+  };
   const prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
   const [dark, setDark] = useState(prefersDark);
 
@@ -781,8 +861,8 @@ const handleLogout = async () => {
   }, []);
 
   const pages = {
-    dashboard: <DashboardPage setActivePage={setActivePage} dark={dark}/>,
-    osint: <OSINTPage setActivePage={setActivePage} dark={dark}/>,
+    dashboard: <DashboardPage setActivePage={setActivePage} dark={dark} onStartInvestigation={handleStartInvestigation} investigation={investigation}/>,
+    osint: <OSINTPage setActivePage={setActivePage} dark={dark} investigation={investigation} investigationLoading={investigationLoading} investigationError={investigationError} onStartInvestigation={handleStartInvestigation}/>,
     "ai-analysis": <AIAnalysisPage setActivePage={setActivePage} dark={dark}/>,
     graph: <GraphPage setActivePage={setActivePage} dark={dark}/>,
     report: <ReportPage dark={dark}/>,
