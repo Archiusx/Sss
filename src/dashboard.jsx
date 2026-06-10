@@ -1,6 +1,7 @@
 import { useState, useEffect, Fragment, useRef } from "react";
 import { PieChart, Pie, Cell, Tooltip, AreaChart, Area, XAxis, YAxis, CartesianGrid, ResponsiveContainer } from "recharts";
 import { auth } from "./firebase";
+import { saveInvestigation, subscribeRecentInvestigations } from "./investigationStore";
 import { runPublicOsintInvestigation, detectTargetType, saveRuntimeGeminiApiKey, hasGeminiApiKey } from "./osintTools";
 import { signOut } from "firebase/auth";
 // ── Icons ──
@@ -66,6 +67,29 @@ const MapPin = IcoEl([<path key="p" d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 
 const ExternalLink = IcoEl([<path key="p" d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>,<polyline key="pl" points="15 3 21 3 21 9"/>,<line key="l" x1="10" y1="14" x2="21" y2="3"/>]);
 
 // ── Data ──
+
+function formatRelativeTime(timestampMs) {
+  if (!timestampMs) return "Just now";
+  const diffSeconds = Math.max(0, Math.floor((Date.now() - timestampMs) / 1000));
+  if (diffSeconds < 10) return "Just now";
+  if (diffSeconds < 60) return `${diffSeconds} Sec ago`;
+  const diffMinutes = Math.floor(diffSeconds / 60);
+  if (diffMinutes < 60) return `${diffMinutes} Min ago`;
+  const diffHours = Math.floor(diffMinutes / 60);
+  if (diffHours < 24) return `${diffHours} Hr ago`;
+  const diffDays = Math.floor(diffHours / 24);
+  if (diffDays < 30) return `${diffDays} Day${diffDays === 1 ? "" : "s"} ago`;
+  return new Date(timestampMs).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+}
+
+function normalizeRecentInvestigation(inv) {
+  return {
+    ...inv,
+    platforms: inv.platforms?.length ? inv.platforms : ["Public OSINT"],
+    date: inv.createdAtMs ? formatRelativeTime(inv.createdAtMs) : inv.date,
+  };
+}
+
 const threatData = [
   { name: "Cybercrime", value: 35, color: "#dc2626" },
   { name: "Fraud", value: 28, color: "#f97316" },
@@ -324,10 +348,11 @@ function TopNav({ activePage, setActivePage, dark, setDark, setSidebarOpen, user
 }
 
 // ── Dashboard Page ──
-function DashboardPage({ setActivePage, onStartInvestigation, investigation, investigationLoading, investigationError }) {
+function DashboardPage({ setActivePage, onStartInvestigation, onSelectInvestigation, investigation, investigationLoading, investigationError, recentItems, recentError, recentLoaded }) {
   const [searchTab, setSearchTab] = useState("username");
   const [searchVal, setSearchVal] = useState("");
   const [searchError, setSearchError] = useState("");
+  const [, setRelativeClock] = useState(0);
   const searchInputRef = useRef(null);
   const resetDashboardSearch = () => {
     setSearchVal("");
@@ -343,16 +368,25 @@ function DashboardPage({ setActivePage, onStartInvestigation, investigation, inv
     setSearchError("");
     await onStartInvestigation({ target: value, type: detectTargetType(value, searchTab), redirectToOsint: false });
   };
+  useEffect(() => {
+    const relativeTimer = window.setInterval(() => setRelativeClock((tick) => tick + 1), 30000);
+    return () => window.clearInterval(relativeTimer);
+  }, []);
+
   const searchTabs = [
     { id:"username", label:"Username", icon:AtSign }, { id:"email", label:"Email", icon:Mail },
     { id:"phone", label:"Phone", icon:Phone }, { id:"url", label:"Profile URL", icon:LinkIcon },
     { id:"keyword", label:"Keyword", icon:Hash }, { id:"image", label:"Image", icon:ImageIcon },
   ];
+  const storedRecentInvestigations = (recentLoaded ? recentItems : recentInvestigations).map(normalizeRecentInvestigation);
+  const dynamicInvestigationCount = recentLoaded ? recentItems.length : recentInvestigations.length;
+  const dynamicHighRiskCount = storedRecentInvestigations.filter((item) => ["critical", "high"].includes(item.risk)).length;
+  const dynamicPlatformCount = new Set(storedRecentInvestigations.flatMap((item) => item.platforms || [])).size;
   const stats = [
-    { label:"Total Investigations", value:"247", delta:"+12 this week", icon:Target, color:"blue" },
-    { label:"Suspects Identified", value:"89", delta:"+7 this week", icon:Users, color:"indigo" },
-    { label:"High Risk Cases", value:"23", delta:"4 require action", icon:AlertTriangle, color:"red" },
-    { label:"Platforms Scanned", value:"14", delta:"Across all cases", icon:Globe, color:"cyan" },
+    { label:"Total Investigations", value:String(dynamicInvestigationCount), delta:recentLoaded ? "Synced from Firestore" : "Demo cases until Firestore syncs", icon:Target, color:"blue" },
+    { label:"Suspects Identified", value:String(storedRecentInvestigations.length), delta:"Unique case targets", icon:Users, color:"indigo" },
+    { label:"High Risk Cases", value:String(dynamicHighRiskCount), delta:"Critical + high risk", icon:AlertTriangle, color:"red" },
+    { label:"Platforms Scanned", value:String(dynamicPlatformCount || 0), delta:"Across recent cases", icon:Globe, color:"cyan" },
   ];
   const colorMap = {
     blue:  { bg:"bg-blue-50", icon:"text-blue-600", ring:"ring-blue-100" },
@@ -398,12 +432,12 @@ function DashboardPage({ setActivePage, onStartInvestigation, investigation, inv
       <div className="lg:col-span-2 rounded-xl shadow-sm" style={V.card}>
         <div className="flex items-center justify-between px-5 py-4" style={V.inner}>
           <h3 className="font-semibold text-sm" style={{ color:"var(--text-primary)" }}>Recent Investigations</h3>
-          <div className="flex items-center gap-2"><button className="p-1.5 rounded-lg hover:bg-slate-50 text-slate-400"><Filter size={13}/></button><button className="p-1.5 rounded-lg hover:bg-slate-50 text-slate-400"><RefreshCw size={13}/></button></div>
+          <div className="flex items-center gap-2"><span className="text-[10px] text-slate-400 hidden sm:inline">Cloud Firestore</span><button className="p-1.5 rounded-lg hover:bg-slate-50 text-slate-400"><Filter size={13}/></button><button className="p-1.5 rounded-lg hover:bg-slate-50 text-slate-400"><RefreshCw size={13}/></button></div>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
-            <thead><tr style={V.inner}>{["Case ID","Target","Type","Platforms","Risk","Status","Date",""].map(hd=><th key={hd} className="text-left px-5 py-2.5 font-medium tracking-wide whitespace-nowrap" style={{ fontSize:11, color:"var(--text-muted)" }}>{hd}</th>)}</tr></thead>
-            <tbody>{recentInvestigations.map(inv=><tr key={inv.id} className="transition-colors cursor-pointer hover:bg-slate-50" style={V.inner}>
+            <thead><tr style={V.inner}>{["Case ID","Target","Type","Platforms","Risk","Status","Updated",""].map(hd=><th key={hd} className="text-left px-5 py-2.5 font-medium tracking-wide whitespace-nowrap" style={{ fontSize:11, color:"var(--text-muted)" }}>{hd}</th>)}</tr></thead>
+            <tbody>{storedRecentInvestigations.map(inv=><tr key={inv.id} onClick={()=>inv.fullInvestigation && onSelectInvestigation?.(inv.fullInvestigation)} className="transition-colors cursor-pointer hover:bg-slate-50" style={V.inner}>
               <td className="px-5 py-3"><span className="text-blue-600 font-medium" style={{ fontFamily:"monospace" }}>{inv.id}</span></td>
               <td className="px-5 py-3"><span className="text-slate-700 font-medium">{inv.target}</span></td>
               <td className="px-5 py-3 text-slate-400">{inv.type}</td>
@@ -414,6 +448,8 @@ function DashboardPage({ setActivePage, onStartInvestigation, investigation, inv
               <td className="px-5 py-3"><ChevronRight size={13} className="text-slate-400"/></td>
             </tr>)}</tbody>
           </table>
+          {recentError && <div className="px-5 py-3 text-xs text-amber-600 bg-amber-50 border-t border-amber-100">Recent investigations could not sync from Firestore: {recentError}</div>}
+          {!storedRecentInvestigations.length && !recentError && <div className="px-5 py-8 text-center text-xs text-slate-400">Run an investigation to save it in Cloud Firestore.</div>}
         </div>
       </div>
       <div className="space-y-5">
@@ -857,6 +893,9 @@ const handleLogout = async () => {
   const [activePage, setActivePage] = useState("dashboard");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [investigation, setInvestigation] = useState(null);
+  const [recentInvestigationsFromStore, setRecentInvestigationsFromStore] = useState([]);
+  const [recentInvestigationsLoaded, setRecentInvestigationsLoaded] = useState(false);
+  const [recentInvestigationError, setRecentInvestigationError] = useState("");
   const [investigationLoading, setInvestigationLoading] = useState(false);
   const [investigationError, setInvestigationError] = useState("");
   const handleStartInvestigation = async ({ target, type, redirectToOsint = true }) => {
@@ -865,6 +904,7 @@ const handleLogout = async () => {
     if (redirectToOsint) setActivePage("osint");
     try {
       const result = await runPublicOsintInvestigation({ target, type });
+      await saveInvestigation(user, result);
       setInvestigation(result);
     } catch (error) {
       setInvestigationError(error.message || "Investigation failed.");
@@ -872,6 +912,11 @@ const handleLogout = async () => {
       setInvestigationLoading(false);
     }
   };
+  const handleSelectInvestigation = (selectedInvestigation) => {
+    setInvestigation(selectedInvestigation);
+    setActivePage("osint");
+  };
+
   const prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
   const [dark, setDark] = useState(prefersDark);
 
@@ -880,13 +925,29 @@ const handleLogout = async () => {
   }, [dark]);
 
   useEffect(() => {
+    setRecentInvestigationError("");
+    setRecentInvestigationsLoaded(false);
+    return subscribeRecentInvestigations(
+      user,
+      (items) => {
+        setRecentInvestigationsFromStore(items);
+        setRecentInvestigationsLoaded(true);
+      },
+      (error) => {
+        setRecentInvestigationError(error.message || "Firestore listener failed.");
+        setRecentInvestigationsLoaded(true);
+      }
+    );
+  }, [user]);
+
+  useEffect(() => {
     const handler = () => { if (window.innerWidth>=768) setSidebarOpen(false); };
     window.addEventListener("resize", handler);
     return () => window.removeEventListener("resize", handler);
   }, []);
 
   const pages = {
-    dashboard: <DashboardPage setActivePage={setActivePage} dark={dark} onStartInvestigation={handleStartInvestigation} investigation={investigation} investigationLoading={investigationLoading} investigationError={investigationError}/>,
+    dashboard: <DashboardPage setActivePage={setActivePage} dark={dark} onStartInvestigation={handleStartInvestigation} onSelectInvestigation={handleSelectInvestigation} investigation={investigation} investigationLoading={investigationLoading} investigationError={investigationError} recentItems={recentInvestigationsFromStore} recentError={recentInvestigationError} recentLoaded={recentInvestigationsLoaded}/>,
     osint: <OSINTPage setActivePage={setActivePage} dark={dark} investigation={investigation} investigationLoading={investigationLoading} investigationError={investigationError} onStartInvestigation={handleStartInvestigation}/>,
     "ai-analysis": <AIAnalysisPage setActivePage={setActivePage} dark={dark}/>,
     graph: <GraphPage setActivePage={setActivePage} dark={dark}/>,
