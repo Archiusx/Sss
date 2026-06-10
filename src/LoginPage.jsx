@@ -446,11 +446,11 @@ export default function LoginPage() {
               </div>  
               <ul style={{ listStyle: "none", textAlign: "left", padding: 0, margin: 0, position: "relative", zIndex: 1 }}>  
                 {[  
-                  ["🛡️", "Threat Intelligence & Analysis"],  
-                  ["👁️", "Cyber Surveillance Network"],  
-                  ["🌐", "Incident Response Management"],  
-                  ["🔒", "Secure Data Vault"],  
-                  ["📈", "Real-Time Threat Monitoring"],  
+                  ["", "Threat Intelligence & Analysis"],  
+                  ["", "Cyber Surveillance Network"],  
+                  ["", "Incident Response Management"],  
+                  ["", "Secure Data Vault"],  
+                  ["", "Real-Time Threat Monitoring"],  
                 ].map(([icon, text]) => (  
                   <li key={text} style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "1rem", fontSize: "0.875rem", opacity: 0.9 }}>  
                     <span style={{ width: 20, textAlign: "center" }}>{icon}</span>  
