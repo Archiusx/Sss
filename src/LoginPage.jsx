@@ -10,14 +10,14 @@ import {
   RecaptchaVerifier,
 } from "firebase/auth";
 import {
-  doc, setDoc, serverTimestamp,
+  doc, getDocFromServer, setDoc, serverTimestamp,
 } from "firebase/firestore";
 import {
   ref, set, onDisconnect,
   serverTimestamp as rtdbTimestamp,
   push,
 } from "firebase/database";
-import { auth, db, rtdb } from "./firebase";
+import { auth, db, firebaseProjectId, rtdb } from "./firebase";
 
 // ── Constants ────────────────────────────────────────────────────────────────
 const ROLE_MAP = {
@@ -54,6 +54,48 @@ function authErr(code) {
 }
 
 // ── The 3 Asynchronous Database Operations ──────────────────────────────────
+
+
+async function setDocAndVerify(docRef, payload, label) {
+  await setDoc(docRef, payload, { merge: true });
+
+  const snap = await getDocFromServer(docRef);
+  if (!snap.exists()) {
+    throw new Error(`${label} write acknowledged, but no Firestore document was found at ${docRef.path}.`);
+  }
+
+  const saved = snap.data();
+  if (payload.uid && saved.uid !== payload.uid) {
+    throw new Error(`${label} verification failed: saved uid ${saved.uid || "<missing>"} does not match ${payload.uid}.`);
+  }
+
+  return saved;
+}
+
+async function saveRegisteredUserProfile(uid, profile) {
+  const userRef = doc(db, "users", uid);
+  const payload = {
+    ...profile,
+    uid,
+    lastLogin: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  };
+
+  let lastError;
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    try {
+      console.info(`[CyIntel] Saving registration profile to ${userRef.path} in project ${firebaseProjectId} (attempt ${attempt}).`);
+      const saved = await setDocAndVerify(userRef, payload, "Registration profile");
+      console.info(`[CyIntel] Registration profile verified for UID: ${uid}`);
+      return saved;
+    } catch (e) {
+      lastError = e;
+      console.error(`[CyIntel] Registration profile save attempt ${attempt} failed:`, e);
+    }
+  }
+
+  throw lastError;
+}
 
 async function upsertUser(uid, fields, isNew = false) {
   try {
@@ -342,52 +384,56 @@ export default function LoginPage() {
 
   // ── Register ───────────────────────────────────────────────────────────────
   async function handleRegister() {
-    if (!regName || !regBadge || !regEmail || !regDept || !regDesig || !regPassword) {
+    const name = regName.trim();
+    const badge = regBadge.trim().toUpperCase();
+    const email = regEmail.trim().toLowerCase();
+    const department = regDept.trim();
+    const designation = regDesig.trim();
+    const phone = regPhone.trim();
+
+    if (!name || !badge || !email || !department || !designation || !regPassword) {
       setRegAlert({ msg: "Please fill in all required fields.", type: "error" }); return;
     }
-    if (!validEmail(regEmail))  { setRegAlert({ msg: "Please enter a valid email address.", type: "error" }); return; }
+    if (!validEmail(email))  { setRegAlert({ msg: "Please enter a valid email address.", type: "error" }); return; }
     if (regPassword.length < 8) { setRegAlert({ msg: "Passphrase must be at least 8 characters.", type: "error" }); return; }
-    if (regBadge.length < 4)    { setRegAlert({ msg: "Please enter a valid Badge / Employee ID.", type: "error" }); return; }
-    if (regPhone && !validPhone(regPhone)) { setRegAlert({ msg: "Enter a valid phone number or leave it blank.", type: "error" }); return; }
+    if (badge.length < 4)    { setRegAlert({ msg: "Please enter a valid Badge / Employee ID.", type: "error" }); return; }
+    if (phone && !validPhone(phone)) { setRegAlert({ msg: "Enter a valid phone number or leave it blank.", type: "error" }); return; }
 
-   setLoad("register", true);
+    setLoad("register", true);
     try {
-      const cred = await createUserWithEmailAndPassword(auth, regEmail, regPassword);
+      const cred = await createUserWithEmailAndPassword(auth, email, regPassword);
       const user = cred.user;
-      await updateProfile(user, { displayName: sanitize(regName) });
-      
+      const displayName = sanitize(name);
+
+      await updateProfile(user, { displayName });
+
       const profile = {
         uid: user.uid,
-        fullName: sanitize(regName),
-        email: regEmail,
-        phone: regPhone || "",
-        badgeID: sanitize(regBadge.toUpperCase()),
-        designation: regDesig,
-        department: regDept,
-        role: ROLE_MAP[regDesig] || "investigator",
+        fullName: displayName,
+        email,
+        phone,
+        badgeID: sanitize(badge),
+        designation,
+        department,
+        role: ROLE_MAP[designation] || "investigator",
         status: "active",
         verified: false,
         authProvider: "email",
-        createdAt: serverTimestamp()
+        createdAt: serverTimestamp(),
       };
 
-      // Direct write to Cloud Firestore
-      await setDoc(doc(db, "users", user.uid), profile, { merge: true });
-
-      if (typeof upsertUser === "function") {
-        await upsertUser(user.uid, profile, true);
-      }
-      await setUserPresence(user.uid, regName);
+      await saveRegisteredUserProfile(user.uid, profile);
+      await setUserPresence(user.uid, displayName);
       await pushNotification(user.uid, "Account registered. Pending admin verification.", "info");
-      
+
       setRegAlert({ msg: "Account registered! Loading dashboard…", type: "success" });
     } catch (e) {
       console.error("Detailed registration failure:", e);
-      setRegAlert({ msg: authErr(e.code), type: "error" });
+      setRegAlert({ msg: authErr(e.code || e.message), type: "error" });
     } finally {
       setLoad("register", false);
     }
-  } // <--- CRITICAL: This brace closes your outer registration function. Do not delete it.
+  }
 
   // ── Enter key support ──────────────────────────────────────────────────────
   useEffect(() => {
