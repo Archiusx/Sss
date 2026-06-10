@@ -28,6 +28,7 @@ const ROLE_MAP = {
 const googleProvider = new GoogleAuthProvider();
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+// ── Core Helper Utilities ───────────────────────────────────────────────────
 const validEmail = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
 const validPhone = (p) => /^(\+91)?[6-9]\d{9}$/.test(p.replace(/[\s\-()/]/g, ""));
 function sanitize(s) {
@@ -52,10 +53,21 @@ function authErr(code) {
   })[code] || `Error: ${code}`;
 }
 
+// ── The 3 Asynchronous Database Operations ──────────────────────────────────
+
 async function upsertUser(uid, fields, isNew = false) {
-  const payload = { lastLogin: serverTimestamp(), ...fields };
-  if (isNew) payload.createdAt = serverTimestamp();
-  await setDoc(doc(db, "users", uid), payload, { merge: true });
+  try {
+    const payload = { lastLogin: serverTimestamp(), ...fields };
+    if (isNew) payload.createdAt = serverTimestamp();
+    
+    // Attempt transaction to Cloud Firestore
+    await setDoc(doc(db, "users", uid), payload, { merge: true });
+    console.log(`[CyIntel] Firestore profile saved successfully for UID: ${uid}`);
+  } catch (e) {
+    // Captures structural issues, network failures, or Permission Denied rules
+    console.error("[CyIntel] CRITICAL FIRESTORE STORAGE FAILURE:", e);
+    throw e; // Rethrow to let the main handler catch block display the UI warning
+  }
 }
 
 async function setUserPresence(uid, name) {
