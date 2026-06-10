@@ -1,4 +1,4 @@
-import { useState, useEffect, Fragment } from "react";
+import { useState, useEffect, Fragment, useRef } from "react";
 import { PieChart, Pie, Cell, Tooltip, AreaChart, Area, XAxis, YAxis, CartesianGrid, ResponsiveContainer } from "recharts";
 import { auth } from "./firebase";
 import { runPublicOsintInvestigation, detectTargetType } from "./osintTools";
@@ -324,10 +324,16 @@ function TopNav({ activePage, setActivePage, dark, setDark, setSidebarOpen, user
 }
 
 // ── Dashboard Page ──
-function DashboardPage({ setActivePage, onStartInvestigation, investigation }) {
+function DashboardPage({ setActivePage, onStartInvestigation, investigation, investigationLoading, investigationError }) {
   const [searchTab, setSearchTab] = useState("username");
   const [searchVal, setSearchVal] = useState("");
   const [searchError, setSearchError] = useState("");
+  const searchInputRef = useRef(null);
+  const resetDashboardSearch = () => {
+    setSearchVal("");
+    setSearchError("");
+    searchInputRef.current?.focus();
+  };
   const startSearch = async () => {
     const value = searchVal.trim();
     if (!value) {
@@ -335,7 +341,7 @@ function DashboardPage({ setActivePage, onStartInvestigation, investigation }) {
       return;
     }
     setSearchError("");
-    await onStartInvestigation({ target: value, type: detectTargetType(value, searchTab) });
+    await onStartInvestigation({ target: value, type: detectTargetType(value, searchTab), redirectToOsint: false });
   };
   const searchTabs = [
     { id:"username", label:"Username", icon:AtSign }, { id:"email", label:"Email", icon:Mail },
@@ -359,17 +365,19 @@ function DashboardPage({ setActivePage, onStartInvestigation, investigation }) {
       <div className="px-5 pt-5 pb-4">
         <div className="flex items-center justify-between mb-4">
           <div><h2 className="font-semibold text-sm" style={{ color:"var(--text-primary)" }}>New Investigation Search</h2><p className="text-xs mt-0.5" style={{ color:"var(--text-muted)" }}>Enter a target identifier to begin OSINT data collection</p></div>
-          <button onClick={()=>setActivePage("osint")} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium transition-colors"><Plus size={14}/>New Investigation</button>
+          <button onClick={resetDashboardSearch} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium transition-colors"><Plus size={14}/>New Investigation</button>
         </div>
         <div className="flex gap-1 p-1 rounded-lg w-fit mb-4" style={{ backgroundColor:"#f8fafc" }}>
           {searchTabs.map(({ id, label, icon:Ic })=><button key={id} onClick={()=>setSearchTab(id)} className={cn("flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all", searchTab===id?"bg-white text-slate-800 shadow-sm":"text-slate-500 hover:text-slate-700")}><Ic size={12}/>{label}</button>)}
         </div>
         <div className="flex gap-3">
-          <div className="flex-1 relative">{searchTab==="image" ? <Upload size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/> : <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/>}<input value={searchVal} onChange={e=>setSearchVal(e.target.value)} placeholder={searchTab==="image" ? "Paste a public image URL to investigate…" : `Search by ${searchTabs.find(t=>t.id===searchTab)?.label.toLowerCase()}…`} className="w-full pl-9 pr-4 py-2.5 rounded-lg text-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-200 transition-all" style={{ background:"var(--bg-input)", border:"1px solid var(--border)", color:"var(--text-primary)" }}/></div>
-          <button onClick={startSearch} className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium flex items-center gap-2 transition-colors"><Zap size={14}/>Investigate</button>
+          <div className="flex-1 relative">{searchTab==="image" ? <Upload size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/> : <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/>}<input ref={searchInputRef} value={searchVal} onChange={e=>setSearchVal(e.target.value)} onKeyDown={e=>{ if(e.key==="Enter") startSearch(); }} placeholder={searchTab==="image" ? "Paste a public image URL to investigate…" : `Search by ${searchTabs.find(t=>t.id===searchTab)?.label.toLowerCase()}…`} className="w-full pl-9 pr-4 py-2.5 rounded-lg text-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-200 transition-all" style={{ background:"var(--bg-input)", border:"1px solid var(--border)", color:"var(--text-primary)" }}/></div>
+          <button disabled={investigationLoading} onClick={startSearch} className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white rounded-lg text-sm font-medium flex items-center gap-2 transition-colors">{investigationLoading ? <Loader2 size={14} className="animate-spin"/> : <Zap size={14}/>}Investigate</button>
         </div>
             {searchError && <div className="mt-2 text-xs text-red-500">{searchError}</div>}
-            {investigation && <div className="mt-3 rounded-lg px-3 py-2 text-xs text-blue-700 bg-blue-50 border border-blue-100">Latest case <span className="font-mono font-semibold">{investigation.id}</span> is ready for <button onClick={()=>setActivePage("osint")} className="underline font-semibold">review</button>.</div>}
+            {investigationError && <div className="mt-2 text-xs text-red-500">{investigationError}</div>}
+            {investigationLoading && <div className="mt-3 rounded-lg px-3 py-2 text-xs text-blue-700 bg-blue-50 border border-blue-100 flex items-center gap-2"><Loader2 size={12} className="animate-spin"/>Collecting public OSINT data on this dashboard…</div>}
+            {investigation && !investigationLoading && <div className="mt-3 rounded-lg px-3 py-2 text-xs text-blue-700 bg-blue-50 border border-blue-100">Latest case <span className="font-mono font-semibold">{investigation.id}</span> is ready on this dashboard. <button onClick={()=>setActivePage("osint")} className="underline font-semibold">Open full collection</button>.</div>}
       </div>
     </div>
     <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -834,10 +842,10 @@ const handleLogout = async () => {
   const [investigation, setInvestigation] = useState(null);
   const [investigationLoading, setInvestigationLoading] = useState(false);
   const [investigationError, setInvestigationError] = useState("");
-  const handleStartInvestigation = async ({ target, type }) => {
+  const handleStartInvestigation = async ({ target, type, redirectToOsint = true }) => {
     setInvestigationError("");
     setInvestigationLoading(true);
-    setActivePage("osint");
+    if (redirectToOsint) setActivePage("osint");
     try {
       const result = await runPublicOsintInvestigation({ target, type });
       setInvestigation(result);
@@ -861,7 +869,7 @@ const handleLogout = async () => {
   }, []);
 
   const pages = {
-    dashboard: <DashboardPage setActivePage={setActivePage} dark={dark} onStartInvestigation={handleStartInvestigation} investigation={investigation}/>,
+    dashboard: <DashboardPage setActivePage={setActivePage} dark={dark} onStartInvestigation={handleStartInvestigation} investigation={investigation} investigationLoading={investigationLoading} investigationError={investigationError}/>,
     osint: <OSINTPage setActivePage={setActivePage} dark={dark} investigation={investigation} investigationLoading={investigationLoading} investigationError={investigationError} onStartInvestigation={handleStartInvestigation}/>,
     "ai-analysis": <AIAnalysisPage setActivePage={setActivePage} dark={dark}/>,
     graph: <GraphPage setActivePage={setActivePage} dark={dark}/>,
