@@ -749,12 +749,22 @@ export default function LoginPage() {
         </footer>
 
         {/* Responsive styles */}
-        <style>{`
-          .cy-auth-container { grid-template-columns: 1fr 1fr !important; }
-          @media (max-width: 768px) {
-            .cy-auth-container { grid-template-columns: 1fr !important; max-width: 500px !important; }
-          }
-        `}</style>
+<style>{`
+  .cy-auth-container {
+    grid-template-columns: 1fr 1fr !important;
+  }
+
+  @media (max-width: 768px) {
+    .cy-auth-container {
+      grid-template-columns: 1fr !important;
+      max-width: 450px !important;
+    }
+
+    .cy-brand-panel {
+      display: none !important;
+    }
+  }
+`}</style>
       </div>
     </>
   );
