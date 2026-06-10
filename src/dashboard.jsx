@@ -741,6 +741,10 @@ function ReportPage() {
 
 // ── Root App ──
 export default function App({ user }) {
+const handleLogout = async () => {
+  await signOut(auth);
+};
+  
   const [activePage, setActivePage] = useState("dashboard");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
