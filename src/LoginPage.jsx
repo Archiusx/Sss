@@ -431,170 +431,35 @@ export default function LoginPage() {
                 backgroundPosition: "10% 20%, 70% 60%",
                 animation: "codeFloat 25s linear infinite",
               }} />
-              <div
-  style={{
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    textAlign: "center",
-    position: "relative",
-    zIndex: 1,
-  }}
->
-  {/* Logo Section */}
-  <div style={{ marginBottom: "2rem" }}>
-    <img
-      src="https://i.ibb.co/XrMWBwQT/IMG-20260609-WA0033.jpg"
-      alt="CyIntel Logo"
-      style={{
-        width: 90,
-        height: 90,
-        borderRadius: 16,
-        objectFit: "cover",
-        display: "block",
-        margin: "0 auto 1.5rem",
-        boxShadow: "0 10px 40px rgba(0,0,0,0.35)",
-        border: "2px solid rgba(255,255,255,0.1)",
-      }}
-    />
-
-    <h1
-      style={{
-        fontSize: "2.4rem",
-        fontWeight: 800,
-        margin: 0,
-        letterSpacing: "-0.03em",
-        background: "linear-gradient(135deg,#ffffff 0%,#60a5fa 100%)",
-        WebkitBackgroundClip: "text",
-        WebkitTextFillColor: "transparent",
-      }}
-    >
-      CyIntel
-    </h1>
-
-    <p
-      style={{
-        fontSize: "1rem",
-        color: "#94a3b8",
-        marginTop: "0.75rem",
-        letterSpacing: "0.05em",
-      }}
-    >
-      Cyber Intelligence & Investigation Platform
-    </p>
-  </div>
-
-  {/* Features */}
-  <ul
-    style={{
-      listStyle: "none",
-      textAlign: "left",
-      padding: 0,
-      margin: 0,
-      width: "100%",
-      maxWidth: "380px",
-    }}
-  >
-    {[
-      {
-        icon: (
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
-            <path
-              d="M12 3L4 6V11C4 16.5 7.5 21.26 12 22C16.5 21.26 20 16.5 20 11V6L12 3Z"
-              stroke="#3B82F6"
-              strokeWidth="2"
-            />
-          </svg>
-        ),
-        text: "Open Source Intelligence (OSINT)"
-      },
-      {
-        icon: (
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
-            <path
-              d="M17 8A5 5 0 107 8C7 10.76 9.24 13 12 13C14.76 13 17 10.76 17 8Z"
-              stroke="#06B6D4"
-              strokeWidth="2"
-            />
-            <path
-              d="M4 20C4 16.69 7.58 14 12 14C16.42 14 20 16.69 20 20"
-              stroke="#06B6D4"
-              strokeWidth="2"
-            />
-          </svg>
-        ),
-        text: "Social Media Intelligence (SOCMINT)"
-      },
-      {
-        icon: (
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
-            <circle
-              cx="11"
-              cy="11"
-              r="7"
-              stroke="#22C55E"
-              strokeWidth="2"
-            />
-            <path
-              d="M20 20L17 17"
-              stroke="#22C55E"
-              strokeWidth="2"
-            />
-          </svg>
-        ),
-        text: "Digital Identity & Profile Investigation"
-      },
-      {
-        icon: (
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
-            <path
-              d="M12 2L20 7V17L12 22L4 17V7L12 2Z"
-              stroke="#F59E0B"
-              strokeWidth="2"
-            />
-          </svg>
-        ),
-        text: "Threat Intelligence & Cyber Analysis"
-      },
-      {
-        icon: (
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
-            <path
-              d="M4 18H20"
-              stroke="#A855F7"
-              strokeWidth="2"
-            />
-            <path
-              d="M7 14L10 10L13 13L18 7"
-              stroke="#A855F7"
-              strokeWidth="2"
-            />
-          </svg>
-        ),
-        text: "Real-Time Monitoring & Investigation Dashboard"
-      }
-    ].map((item) => (
-      <li
-        key={item.text}
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: "12px",
-          marginBottom: "1.2rem",
-          padding: "12px 14px",
-          borderRadius: "12px",
-          background: "rgba(255,255,255,0.04)",
-          border: "1px solid rgba(255,255,255,0.06)",
-          color: "#e2e8f0",
-          fontSize: "0.92rem",
-        }}
-      >
-        {item.icon}
-        <span>{item.text}</span>
-      </li>
-    ))}
-  </ul>
-</div>
+              <div style={{ position: "relative", zIndex: 1, marginBottom: "2rem" }}>  
+                <img  
+                  src="https://i.ibb.co/XrMWBwQT/IMG-20260609-WA0033.jpg"  
+                  alt="CyIntel Logo"  
+                  style={{ width: 80, height: 80, borderRadius: 12, boxShadow: "0 8px 32px rgba(0,0,0,0.4)", marginBottom: "1.5rem" }}  
+                />  
+                <h1 style={{  
+                  fontSize: "2rem", fontWeight: 700, marginBottom: "0.5rem", margin: 0,  
+                  background: "linear-gradient(135deg,#fff 0%,#e2e8f0 100%)",  
+                  WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text",  
+                }}>CyIntel</h1>  
+                <p style={{ fontSize: "1rem", opacity: 0.9, margin: "0.5rem 0 2rem", color: "#cbd5e1" }}>Cyber Intelligence Platform</p>  
+              </div>  
+              <ul style={{ listStyle: "none", textAlign: "left", padding: 0, margin: 0, position: "relative", zIndex: 1 }}>  
+                {[  
+                  ["🛡️", "Threat Intelligence & Analysis"],  
+                  ["👁️", "Cyber Surveillance Network"],  
+                  ["🌐", "Incident Response Management"],  
+                  ["🔒", "Secure Data Vault"],  
+                  ["📈", "Real-Time Threat Monitoring"],  
+                ].map(([icon, text]) => (  
+                  <li key={text} style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "1rem", fontSize: "0.875rem", opacity: 0.9 }}>  
+                    <span style={{ width: 20, textAlign: "center" }}>{icon}</span>  
+                    <span>{text}</span>  
+                  </li>  
+                ))}  
+              </ul>  
+            </div> 
+  
 
             {/* ── Auth Panel ─── */}
             <div style={{
