@@ -5,8 +5,7 @@ import Dashboard from "./dashboard";
 import LoginPage from "./LoginPage";
 import { auth, db, rtdb, authReady } from "./firebase";
 import { onAuthStateChanged } from "firebase/auth";
-import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
-import { ref, set, onDisconnect, serverTimestamp as rtdbTimestamp } from "firebase/database";
+import { doc, getDoc } from "firebase/firestore";
 
 const FIRESTORE_TIMEOUT_MS = 5000;
 
@@ -22,8 +21,8 @@ async function fetchUserProfile(u) {
       return {
         ...u,
         ...d,
-        photoURL:     d.photoURL     || u.photoURL,
-        displayName:  d.fullName     || d.displayName || u.displayName,
+        photoURL:    d.photoURL    || u.photoURL,
+        displayName: d.fullName    || d.displayName || u.displayName,
       };
     }
   } catch (e) {
@@ -37,38 +36,28 @@ function Root() {
   const [checking, setChecking] = useState(true);
 
   useEffect(() => {
-    let cancelled = false;
+    let unsub = () => {};
+    let timer;
 
-    // Wait for persistence to be configured BEFORE subscribing to auth state.
-    // This prevents the brief "signed-out" flash that caused the login loop.
+    // Wait for persistence to be ready before subscribing — prevents the
+    // "flash to null" that caused the login loop on mobile.
     authReady.then(() => {
-      if (cancelled) return;
+      // Safety net — never spin forever
+      timer = setTimeout(() => setChecking(false), 8000);
 
-      const unsub = onAuthStateChanged(auth, async (u) => {
-        if (cancelled) return;
+      unsub = onAuthStateChanged(auth, async (u) => {
+        clearTimeout(timer);
         if (u) {
           const profile = await fetchUserProfile(u);
-          if (!cancelled) {
-            setUser(profile);
-            setChecking(false);
-          }
+          setUser(profile);
         } else {
           setUser(null);
-          setChecking(false);
         }
+        setChecking(false);
       });
-
-      // Safety net — never spin forever
-      const timer = setTimeout(() => {
-        if (!cancelled) setChecking(false);
-      }, 8000);
-
-      // Store cleanup refs on the outer cancel flag closure
-      cancelled = false; // re-use flag to carry unsub ref — use a real ref below
-      return () => { unsub(); clearTimeout(timer); };
     });
 
-    return () => { cancelled = true; };
+    return () => { unsub(); clearTimeout(timer); };
   }, []);
 
   if (checking) {
