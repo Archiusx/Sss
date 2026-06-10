@@ -43,7 +43,7 @@ function Root() {
     );
   }
 
-  return user ? <Dashboard /> : <LoginPage />;
+  return user ? <Dashboard user={user} /> : <LoginPage />;
 }
 
 ReactDOM.createRoot(document.getElementById("root")).render(
