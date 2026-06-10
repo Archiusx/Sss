@@ -431,26 +431,51 @@ export default function LoginPage() {
                 backgroundPosition: "10% 20%, 70% 60%",
                 animation: "codeFloat 25s linear infinite",
               }} />
-              <div style={{ position: "relative", zIndex: 1, marginBottom: "2rem" }}>
-                <img
-                  src="https://i.ibb.co/XrMWBwQT/IMG-20260609-WA0033.jpg"
-                  alt="CyIntel Logo"
-                  style={{ width: 80, height: 80, borderRadius: 12, boxShadow: "0 8px 32px rgba(0,0,0,0.4)", marginBottom: "1.5rem" }}
-                />
-                <h1 style={{
-                  fontSize: "2rem", fontWeight: 700, marginBottom: "0.5rem", margin: 0,
-                  background: "linear-gradient(135deg,#fff 0%,#e2e8f0 100%)",
-                  WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text",
-                }}>CyIntel</h1>
-                <p style={{ fontSize: "1rem", opacity: 0.9, margin: "0.5rem 0 2rem", color: "#cbd5e1" }}>Cyber Intelligence Platform</p>
-              </div>
+              <div style={{
+  position: "relative",
+  zIndex: 1,
+  marginBottom: "2rem"
+}}>
+  <img
+    src="https://i.ibb.co/XrMWBwQT/IMG-20260609-WA0033.jpg"
+    alt="CyIntel Logo"
+    style={{
+      width: 80,
+      height: 80,
+      borderRadius: 12,
+      boxShadow: "0 8px 32px rgba(0,0,0,0.4)",
+      display: "block",
+      marginLeft: "auto",
+      marginRight: "auto",
+      marginBottom: "1.5rem"
+    }}
+  />  <h1 style={{
+    fontSize: "2rem",
+    fontWeight: 700,
+    marginBottom: "0.5rem",
+    margin: 0,
+    background: "linear-gradient(135deg,#fff 0%,#e2e8f0 100%)",
+    WebkitBackgroundClip: "text",
+    WebkitTextFillColor: "transparent",
+    backgroundClip: "text",
+  }}>
+    CyIntel
+  </h1>  <p style={{
+    fontSize: "1rem",
+    opacity: 0.9,
+    margin: "0.5rem 0 2rem",
+    color: "#cbd5e1"
+  }}>
+    Cyber Intelligence Platform - Cyber Investigation Department Karnataka
+  </p>
+</div>
               <ul style={{ listStyle: "none", textAlign: "left", padding: 0, margin: 0, position: "relative", zIndex: 1 }}>
                 {[
-                  ["🛡️", "Threat Intelligence & Analysis"],
-                  ["👁️", "Cyber Surveillance Network"],
-                  ["🌐", "Incident Response Management"],
-                  ["🔒", "Secure Data Vault"],
-                  ["📈", "Real-Time Threat Monitoring"],
+                  ["", "Threat Intelligence & Analysis"],
+                  ["", "Cyber Surveillance Network"],
+                  ["", "Incident Response Management"],
+                  ["", "Secure Data Vault"],
+                  ["", "Real-Time Threat Monitoring"],
                 ].map(([icon, text]) => (
                   <li key={text} style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "1rem", fontSize: "0.875rem", opacity: 0.9 }}>
                     <span style={{ width: 20, textAlign: "center" }}>{icon}</span>
