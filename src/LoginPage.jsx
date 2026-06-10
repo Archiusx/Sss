@@ -419,7 +419,7 @@ export default function LoginPage() {
           }} className="cy-auth-container">
 
             {/* ── Brand Panel ─── */}
-            <div style={{
+<div className="cy-brand-panel" style={{
               background: "linear-gradient(135deg,#0D1835 0%,#162448 60%,#0A0F1E 100%)",
               display: "flex", flexDirection: "column", alignItems: "center",
               justifyContent: "center", padding: "3rem 2rem", textAlign: "center", position: "relative", overflow: "hidden",
