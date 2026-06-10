@@ -1,6 +1,6 @@
 import { initializeApp } from "firebase/app";
 import { getAuth, browserLocalPersistence, indexedDBLocalPersistence, setPersistence } from "firebase/auth";
-import { getFirestore } from "firebase/firestore";
+import { initializeFirestore, setLogLevel } from "firebase/firestore";
 import { getDatabase } from "firebase/database";
 
 const firebaseConfig = {
@@ -14,10 +14,35 @@ const firebaseConfig = {
   measurementId:     "G-W6E553YQGN",
 };
 
-const app  = initializeApp(firebaseConfig);
+export const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
-export const db   = getFirestore(app);
+
+// Use the same initialized Firebase app for every Firestore operation.
+// Auto-detecting long polling avoids silent-looking hangs on restrictive
+// networks/proxies while still using the normal v10 modular SDK instance.
+export const db = initializeFirestore(app, {
+  experimentalAutoDetectLongPolling: true,
+});
+
 export const rtdb = getDatabase(app);
+export const firebaseProjectId = firebaseConfig.projectId;
+
+export function enableFirestoreDebugLogging() {
+  setLogLevel("debug");
+  console.info(`[CyIntel] Firestore debug logging enabled for project ${firebaseConfig.projectId}.`);
+}
+
+function shouldEnableFirestoreDebugLogging() {
+  try {
+    return typeof window !== "undefined" && window.localStorage?.getItem("CYINTEL_FIRESTORE_DEBUG") === "true";
+  } catch (_) {
+    return false;
+  }
+}
+
+if (shouldEnableFirestoreDebugLogging()) {
+  enableFirestoreDebugLogging();
+}
 
 // Export a promise that resolves once persistence is configured.
 // main.jsx awaits this before touching auth — guarantees the redirect
