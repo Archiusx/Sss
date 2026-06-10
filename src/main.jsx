@@ -3,26 +3,16 @@ import ReactDOM from "react-dom/client";
 import "./index.css";
 import Dashboard from "./dashboard";
 import LoginPage from "./LoginPage";
-import { auth, db } from "./firebase";
+import { auth, db, rtdb } from "./firebase";
 import { onAuthStateChanged, getRedirectResult } from "firebase/auth";
-import { doc, getDoc, getDocFromCache } from "firebase/firestore";
+import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
+import { ref, set, onDisconnect, serverTimestamp as rtdbTimestamp } from "firebase/database";
 
-// Max time to wait for Firestore profile before falling back to Auth-only user
-const FIRESTORE_TIMEOUT_MS = 4000;
+const FIRESTORE_TIMEOUT_MS = 5000;
 
+// Try cache first, then network with timeout
 async function fetchUserProfile(u) {
   const docRef = doc(db, "users", u.uid);
-  
-  // Try cache first (instant, works offline)
-  try {
-    const cached = await getDocFromCache(docRef);
-    if (cached.exists()) {
-      const d = cached.data();
-      return { ...u, ...d, photoURL: d.photoURL || u.photoURL, displayName: d.fullName || d.displayName || u.displayName };
-    }
-  } catch (_) { /* cache miss is normal */ }
-
-  // Network fetch with timeout — never hang forever on slow connections
   try {
     const snap = await Promise.race([
       getDoc(docRef),
@@ -30,45 +20,107 @@ async function fetchUserProfile(u) {
     ]);
     if (snap.exists()) {
       const d = snap.data();
-      return { ...u, ...d, photoURL: d.photoURL || u.photoURL, displayName: d.fullName || d.displayName || u.displayName };
+      return {
+        ...u,
+        ...d,
+        photoURL: d.photoURL || u.photoURL,
+        displayName: d.fullName || d.displayName || u.displayName,
+      };
     }
   } catch (e) {
-    console.warn("[CyIntel] Firestore fetch failed/timed out, using Auth user:", e.message);
+    console.warn("[CyIntel] Firestore fetch failed, using Auth user:", e.message);
   }
-
-  // Fallback: Auth user only (dashboard still works, profile just has less data)
   return u;
 }
 
+// Handle saving Google redirect user to Firestore (mirrors LoginPage logic)
+async function saveGoogleRedirectUser(u, isNew) {
+  try {
+    const payload = {
+      authProvider: "google",
+      email: u.email,
+      fullName: u.displayName || "CyIntel Operative",
+      phone: u.phoneNumber || "",
+      photoURL: u.photoURL || "",
+      lastLogin: serverTimestamp(),
+    };
+    if (isNew) {
+      Object.assign(payload, {
+        uid: u.uid,
+        badgeID: "",
+        designation: "",
+        department: "",
+        role: "investigator",
+        status: "active",
+        verified: true,
+        createdAt: serverTimestamp(),
+      });
+    }
+    await setDoc(doc(db, "users", u.uid), payload, { merge: true });
+  } catch (e) {
+    console.warn("[CyIntel] Redirect user save failed (non-fatal):", e.message);
+    // Non-fatal — user still proceeds to dashboard
+  }
+
+  // Presence (fire-and-forget)
+  try {
+    const pRef = ref(rtdb, `presence/${u.uid}`);
+    const data = { uid: u.uid, displayName: u.displayName || "Operative", online: true, lastSeen: rtdbTimestamp() };
+    await set(pRef, data);
+    onDisconnect(pRef).set({ uid: u.uid, online: false, lastSeen: rtdbTimestamp() });
+  } catch (_) {}
+}
+
 function Root() {
-  const [user, setUser]       = useState(null);
+  const [user, setUser]         = useState(null);
   const [checking, setChecking] = useState(true);
 
   useEffect(() => {
-    // Handle Google redirect result FIRST (for mobile redirect flow)
+    let settled = false;
+
+    function done(u) {
+      if (settled) return;
+      settled = true;
+      setUser(u);
+      setChecking(false);
+    }
+
+    // Hard safety net — never spin forever, even if Firebase is completely dead
+    const safetyTimer = setTimeout(() => done(null), 7000);
+
+    // Step 1: Check if we're returning from a Google redirect
     getRedirectResult(auth)
       .then(async (result) => {
         if (result?.user) {
-          // Will be picked up by onAuthStateChanged below — no duplicate handling needed
-          console.log("[CyIntel] Redirect sign-in completed:", result.user.email);
+          const u = result.user;
+          const isNew = result._tokenResponse?.isNewUser ?? false;
+          // Save to Firestore (was skipped because page redirected away from LoginPage)
+          await saveGoogleRedirectUser(u, isNew);
+          const profile = await fetchUserProfile(u);
+          done(profile);
         }
+        // If no redirect result, onAuthStateChanged below handles it
       })
-      .catch((e) => console.warn("[CyIntel] Redirect result error:", e.code));
+      .catch((e) => {
+        console.warn("[CyIntel] getRedirectResult error:", e.code);
+        // Don't call done() here — let onAuthStateChanged handle it
+      });
 
+    // Step 2: Normal auth state listener (email/phone login, already logged in)
     const unsub = onAuthStateChanged(auth, async (u) => {
+      if (settled) return; // redirect result already handled it
       if (u) {
         const profile = await fetchUserProfile(u);
-        setUser(profile);
+        done(profile);
       } else {
-        setUser(null);
+        done(null);
       }
-      setChecking(false);
     });
 
-    // Hard safety net — if Firebase never fires (e.g. blocked network), unblock UI after 6s
-    const safetyTimer = setTimeout(() => setChecking(false), 6000);
-
-    return () => { unsub(); clearTimeout(safetyTimer); };
+    return () => {
+      unsub();
+      clearTimeout(safetyTimer);
+    };
   }, []);
 
   if (checking) {
