@@ -3,23 +3,42 @@ import ReactDOM from "react-dom/client";
 import "./index.css";
 import Dashboard from "./dashboard";
 import LoginPage from "./LoginPage";
-import { auth } from "./firebase";
+import { auth, db } from "./firebase"; // Imported db here
 import { onAuthStateChanged } from "firebase/auth";
+import { doc, getDoc } from "firebase/firestore"; // Imported Firestore document methods
 
 function Root() {
-  // null = still checking, false = not signed in, object = signed in user
   const [user, setUser] = useState(null);
   const [checking, setChecking] = useState(true);
 
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (u) => {
-      setUser(u);
+    const unsub = onAuthStateChanged(auth, async (u) => {
+      if (u) {
+        try {
+          // Fetch user's profile data from Cloud Firestore
+          const docRef = doc(db, "users", u.uid);
+          const docSnap = await getDoc(docRef);
+
+          if (docSnap.exists()) {
+            // Merge Auth properties with all custom Firestore profiling metrics
+            setUser({ ...u, ...docSnap.data() });
+          } else {
+            // Fallback if the user logs in before firestore finishes the document write
+            setUser(u);
+          }
+        } catch (error) {
+          console.error("Error retrieving user profile document:", error);
+          setUser(u);
+        }
+      } else {
+        setUser(null);
+      }
       setChecking(false);
     });
     return unsub;
   }, []);
 
-  // Splash while Firebase checks persisted session
+  // Splash while Firebase checks persisted session or loads firestore document
   if (checking) {
     return (
       <div style={{
@@ -43,6 +62,7 @@ function Root() {
     );
   }
 
+  // Passes the enriched profile down to the application shell component
   return user ? <Dashboard user={user} /> : <LoginPage />;
 }
 
