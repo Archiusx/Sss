@@ -88,32 +88,76 @@ function Root() {
     // Hard safety net — never spin forever, even if Firebase is completely dead
     const safetyTimer = setTimeout(() => done(null), 7000);
 
-    // Step 1: Check if we're returning from a Google redirect
+    // Step 1: Check if we're returning from a Google redirect.
+    // We track whether getRedirectResult has finished so onAuthStateChanged
+    // never calls done(null) prematurely while the redirect result is still
+    // pending — that race condition caused the login page to re-render instead
+    // of navigating to the dashboard.
+    let redirectResultDone = false;
+    let pendingAuthUser = null; // holds the onAuthStateChanged user if it fires first
+
     getRedirectResult(auth)
       .then(async (result) => {
         if (result?.user) {
+          // We have a redirect login — this takes priority.
           const u = result.user;
           const isNew = result._tokenResponse?.isNewUser ?? false;
           // Save to Firestore (was skipped because page redirected away from LoginPage)
           await saveGoogleRedirectUser(u, isNew);
           const profile = await fetchUserProfile(u);
           done(profile);
+        } else {
+          // No redirect result — let onAuthStateChanged decide.
+          // If it already fired and is waiting, resolve it now.
+          redirectResultDone = true;
+          if (pendingAuthUser !== undefined) {
+            if (pendingAuthUser) {
+              const profile = await fetchUserProfile(pendingAuthUser);
+              done(profile);
+            } else {
+              done(null);
+            }
+          }
         }
-        // If no redirect result, onAuthStateChanged below handles it
       })
       .catch((e) => {
         console.warn("[CyIntel] getRedirectResult error:", e.code);
-        // Don't call done() here — let onAuthStateChanged handle it
+        // Mark redirect as done so onAuthStateChanged can proceed.
+        redirectResultDone = true;
+        if (pendingAuthUser !== undefined) {
+          if (pendingAuthUser) {
+            fetchUserProfile(pendingAuthUser).then(done).catch(() => done(pendingAuthUser));
+          } else {
+            done(null);
+          }
+        }
       });
 
     // Step 2: Normal auth state listener (email/phone login, already logged in)
     const unsub = onAuthStateChanged(auth, async (u) => {
-      if (settled) return; // redirect result already handled it
-      if (u) {
-        const profile = await fetchUserProfile(u);
-        done(profile);
+      if (settled) return; // already resolved
+
+      if (redirectResultDone) {
+        // getRedirectResult is done and had no result — safe to act now.
+        if (u) {
+          const profile = await fetchUserProfile(u);
+          done(profile);
+        } else {
+          done(null);
+        }
       } else {
-        done(null);
+        // getRedirectResult hasn't finished yet.
+        // If we have a logged-in user, we can proceed immediately (the user
+        // is already authenticated regardless of the redirect result).
+        // If user is null, we must wait — calling done(null) now would send
+        // the user back to the login page even though a redirect just succeeded.
+        if (u) {
+          const profile = await fetchUserProfile(u);
+          done(profile);
+        } else {
+          // Park the null value; getRedirectResult's .then() will pick it up.
+          pendingAuthUser = null;
+        }
       }
     });
 
@@ -154,3 +198,4 @@ ReactDOM.createRoot(document.getElementById("root")).render(
     <Root />
   </React.StrictMode>
 );
+            
