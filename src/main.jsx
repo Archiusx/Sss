@@ -3,11 +3,12 @@ import ReactDOM from "react-dom/client";
 import "./index.css";
 import Dashboard from "./dashboard";
 import LoginPage from "./LoginPage";
-import { auth, db } from "./firebase"; // Imported db here
+import { auth, db } from "./firebase";
 import { onAuthStateChanged } from "firebase/auth";
-import { doc, getDoc } from "firebase/firestore"; // Imported Firestore document methods
+import { doc, getDoc } from "firebase/firestore";
 
 function Root() {
+  // holds the combined auth + profiling data object
   const [user, setUser] = useState(null);
   const [checking, setChecking] = useState(true);
 
@@ -15,19 +16,19 @@ function Root() {
     const unsub = onAuthStateChanged(auth, async (u) => {
       if (u) {
         try {
-          // Fetch user's profile data from Cloud Firestore
+          // Pull full profile fields from Firestore matching this account UID
           const docRef = doc(db, "users", u.uid);
           const docSnap = await getDoc(docRef);
 
           if (docSnap.exists()) {
-            // Merge Auth properties with all custom Firestore profiling metrics
+            // Merge custom fields (role, department, badgeID) with default Auth state
             setUser({ ...u, ...docSnap.data() });
           } else {
-            // Fallback if the user logs in before firestore finishes the document write
+            // Fallback object if document is still writing or missing
             setUser(u);
           }
         } catch (error) {
-          console.error("Error retrieving user profile document:", error);
+          console.error("Error loading profile from Firestore:", error);
           setUser(u);
         }
       } else {
@@ -38,7 +39,7 @@ function Root() {
     return unsub;
   }, []);
 
-  // Splash while Firebase checks persisted session or loads firestore document
+  // Secure Animated Splash Loading Screen
   if (checking) {
     return (
       <div style={{
@@ -62,7 +63,7 @@ function Root() {
     );
   }
 
-  // Passes the enriched profile down to the application shell component
+  // Pass user profile straight into the application
   return user ? <Dashboard user={user} /> : <LoginPage />;
 }
 
