@@ -6,6 +6,7 @@ import LoginPage from "./LoginPage";
 import { auth, db, rtdb, authReady } from "./firebase";
 import { onAuthStateChanged } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
+import { Analytics } from "@vercel/analytics/react";
 
 const FIRESTORE_TIMEOUT_MS = 5000;
 
@@ -89,5 +90,6 @@ function Root() {
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
     <Root />
+    <Analytics />
   </React.StrictMode>
 );
