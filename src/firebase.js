@@ -1,5 +1,5 @@
 import { initializeApp } from "firebase/app";
-import { getAuth, browserLocalPersistence, indexedDBLocalPersistence, setPersistence } from "firebase/auth";
+import { getAuth, browserLocalPersistence, indexedDBLocalPersistence, setPersistence, signInAnonymously } from "firebase/auth";
 import { initializeFirestore, setLogLevel } from "firebase/firestore";
 import { getDatabase } from "firebase/database";
 
@@ -17,9 +17,6 @@ const firebaseConfig = {
 export const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 
-// Use the same initialized Firebase app for every Firestore operation.
-// Auto-detecting long polling avoids silent-looking hangs on restrictive
-// networks/proxies while still using the normal v10 modular SDK instance.
 export const db = initializeFirestore(app, {
   experimentalAutoDetectLongPolling: true,
 });
@@ -44,9 +41,25 @@ if (shouldEnableFirestoreDebugLogging()) {
   enableFirestoreDebugLogging();
 }
 
-// Export a promise that resolves once persistence is configured.
-// main.jsx awaits this before touching auth — guarantees the redirect
-// credential is never lost due to a persistence-not-ready race.
+// Persistence setup
 export const authReady = setPersistence(auth, indexedDBLocalPersistence)
   .catch(() => setPersistence(auth, browserLocalPersistence))
-  .catch(() => { /* silent — default in-memory persistence is fine */ });
+  .catch(() => {});
+
+// 🔥 CRITICAL FIX: ensure user always exists (prevents Firestore "offline" false failures)
+async function ensureAuth() {
+  await authReady;
+
+  if (!auth.currentUser) {
+    try {
+      await signInAnonymously(auth);
+      console.info("[CyIntel] Anonymous auth session created");
+    } catch (err) {
+      console.error("[CyIntel] Anonymous auth failed:", err);
+    }
+  }
+}
+
+ensureAuth();
+
+export { ensureAuth };
