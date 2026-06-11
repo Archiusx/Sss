@@ -43,8 +43,10 @@ function str(v, max = 2000) { return String(v ?? "").slice(0, max); }
 function num(v) { return Number(v) || 0; }
 
 export async function saveInvestigation(user, investigation) {
-  if (!user?.uid) throw new Error("Sign in before saving.");
-  if (!investigation?.id) throw new Error("Investigation has no ID.");
+  const safeUser = user?.uid ? user : await requireAuth();
+
+  if (!safeUser?.uid) throw new Error("Auth not ready");
+  if (!investigation?.id) throw new Error("Investigation has no ID");
 
   console.log("[CyIntel] saveInvestigation called:", investigation.id);
 
@@ -73,7 +75,30 @@ export async function saveInvestigation(user, investigation) {
   };
 
   const cleanData = jsonClean(raw);
-  const ref = doc(db, "users", user.uid, "investigations", investigation.id);
+
+  const ref = doc(
+    db,
+    "users",
+    safeUser.uid,
+    "investigations",
+    investigation.id
+  );
+
+  await setDoc(
+    ref,
+    {
+      ownerId: safeUser.uid,
+      caseId: investigation.id,
+      data: cleanData,
+      updatedAt: serverTimestamp(),
+      createdAt: serverTimestamp()
+    },
+    { merge: true }
+  );
+
+  console.log("[CyIntel] Firestore WRITE SUCCESS:", ref.path);
+  return investigation.id;
+}
 
   // FIX: removed getDoc existence check (caused "client offline" false error)
   const docData = {
