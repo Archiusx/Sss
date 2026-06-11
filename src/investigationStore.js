@@ -73,18 +73,9 @@ export async function saveInvestigation(user, investigation) {
   };
 
   const cleanData = jsonClean(raw);
-
   const ref = doc(db, "users", user.uid, "investigations", investigation.id);
 
-  let docExists = false;
-  try {
-    const existingSnap = await getDoc(ref);
-    docExists = existingSnap.exists();
-  } catch (err) {
-    console.error("[CyIntel] getDoc failed:", err);
-    throw err;
-  }
-
+  // FIX: removed getDoc existence check (caused "client offline" false error)
   const docData = {
     ownerId: str(user.uid, 128),
     caseId: str(investigation.id, 40),
@@ -105,7 +96,7 @@ export async function saveInvestigation(user, investigation) {
     },
     data: cleanData,
     updatedAt: serverTimestamp(),
-    ...(!docExists ? { createdAt: serverTimestamp() } : {}),
+    createdAt: serverTimestamp()
   };
 
   await setDoc(ref, docData, { merge: true });
