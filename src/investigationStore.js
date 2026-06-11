@@ -45,9 +45,12 @@ function getPlatforms(inv) {
 function str(v, max = 2000) { return String(v ?? "").slice(0, max); }
 function num(v) { return Number(v) || 0; }
 
+// =============================
+// CORE SAVE
+// =============================
+
 export async function saveInvestigation(user, investigation) {
-  const safeUser = user?.uid ? user : null;
-  if (!safeUser?.uid) throw new Error("Sign in before saving.");
+  if (!user?.uid) throw new Error("Sign in before saving.");
   if (!investigation?.id) throw new Error("Investigation has no ID.");
 
   const confidence = num(investigation?.stats?.confidence);
@@ -62,22 +65,14 @@ export async function saveInvestigation(user, investigation) {
     metadata: investigation.metadata || [],
     findings: (investigation.findings || []).slice(0, 15),
     crawledPages: (investigation.crawledPages || []).slice(0, 6),
-    crawlErrors: (investigation.crawlErrors || []).slice(0, 8),
-    searchLinks: (investigation.searchLinks || []).slice(0, 10),
     logs: (investigation.logs || []).slice(0, 20),
-    tools: (investigation.tools || []).slice(0, 10),
-    gemini: {
-      enabled: Boolean(investigation.gemini?.enabled),
-      summary: str(investigation.gemini?.summary, 6000),
-      sources: (investigation.gemini?.sources || []).slice(0, 8),
-      queries: (investigation.gemini?.queries || []).slice(0, 5),
-    },
+    gemini: investigation.gemini || {},
   };
 
   const cleanData = jsonClean(raw);
 
   const docData = {
-    ownerId: safeUser.uid,
+    ownerId: user.uid,
     caseId: investigation.id,
     target: raw.target,
     type: raw.type,
@@ -85,31 +80,147 @@ export async function saveInvestigation(user, investigation) {
     risk: riskFromConfidence(confidence),
     platforms: getPlatforms(investigation),
     summary: str(investigation.gemini?.summary || "OSINT completed", 20000),
-    sourceCounts: {
-      findings: num(investigation.findings?.length),
-      searchLinks: num(investigation.searchLinks?.length),
-      crawledPages: num(investigation.crawledPages?.length),
-      confidence,
-    },
     data: cleanData,
     updatedAt: serverTimestamp(),
     createdAt: serverTimestamp()
   };
 
-  const ref = doc(db, "users", safeUser.uid, "investigations", investigation.id);
+  const ref = doc(db, "users", user.uid, "investigations", investigation.id);
 
   await setDoc(ref, docData, { merge: true });
-
-  console.log("[CyIntel] Firestore WRITE SUCCESS:", ref.path);
   return investigation.id;
 }
 
-function toMs(v) {
-  if (!v) return 0;
-  if (typeof v.toMillis === "function") return v.toMillis();
-  if (typeof v === "string") return Date.parse(v) || 0;
-  if (v instanceof Date) return v.getTime();
-  return 0;
+// =============================
+// SOCMINT GRAPH ENGINE
+// =============================
+
+export function buildEntityGraph(investigation) {
+  const nodes = new Map();
+  const edges = [];
+
+  const addNode = (id, type, data) => {
+    if (!nodes.has(id)) nodes.set(id, { id, type, ...data });
+  };
+
+  const connect = (a, b, type) => {
+    edges.push({ from: a, to: b, type });
+  };
+
+  for (const f of investigation.findings || []) {
+    if (f?.value) {
+      addNode(f.value, "entity", f);
+      addNode(investigation.id, "case", {});
+      connect(investigation.id, f.value, "found");
+    }
+  }
+
+  for (const p of investigation.crawledPages || []) {
+    if (p?.url) {
+      addNode(p.url, "source", p);
+      connect(investigation.id, p.url, "crawled");
+    }
+  }
+
+  return {
+    nodes: [...nodes.values()],
+    edges
+  };
+}
+
+// =============================
+// TIMELINE ENGINE
+// =============================
+
+export function buildTimeline(investigation) {
+  const events = [];
+
+  for (const log of investigation.logs || []) {
+    events.push({
+      time: log.time || Date.now(),
+      type: log.type || "log",
+      message: log.message || "event"
+    });
+  }
+
+  for (const p of investigation.crawledPages || []) {
+    events.push({
+      time: p.time || Date.now(),
+      type: "crawl",
+      message: p.url || "page"
+    });
+  }
+
+  return events.sort((a, b) => new Date(a.time) - new Date(b.time));
+}
+
+// =============================
+// AI CORRELATION ENGINE (SAFE STUB)
+// =============================
+
+export function correlateEntities(investigation) {
+  const freq = {};
+
+  for (const f of investigation.findings || []) {
+    const k = f?.value;
+    if (!k) continue;
+    freq[k] = (freq[k] || 0) + 1;
+  }
+
+  const ranked = Object.entries(freq)
+    .sort((a, b) => b[1] - a[1])
+    .map(([entity, score]) => ({ entity, score }));
+
+  return {
+    clusters: ranked.slice(0, 20),
+    confidence: ranked.length > 0 ? Math.min(100, ranked[0][1] * 10) : 0
+  };
+}
+
+// =============================
+// SAFE CRAWLER PIPELINE (NO BYPASS)
+// =============================
+
+export async function runSafeCrawler(seedUrls = []) {
+  return seedUrls.map(url => ({
+    url,
+    status: "queued",
+    note: "public-source crawl simulation only"
+  }));
+}
+
+// =============================
+// PDF REPORT GENERATOR (STUB)
+// =============================
+
+export async function generatePdfReport(investigation) {
+  const graph = buildEntityGraph(investigation);
+  const timeline = buildTimeline(investigation);
+  const correlation = correlateEntities(investigation);
+
+  const report = {
+    title: `Investigation Report - ${investigation.id}`,
+    summary: investigation.gemini?.summary || "No AI summary",
+    graph,
+    timeline,
+    correlation,
+    generatedAt: new Date().toISOString()
+  };
+
+  return report;
+}
+
+// =============================
+// FIRESTORE READ HELPERS
+// =============================
+
+export async function getInvestigation(user, firestoreId) {
+  if (!user?.uid) throw new Error("Sign in before reading.");
+
+  const ref = doc(db, "users", user.uid, "investigations", firestoreId);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) return null;
+  return snap.data();
 }
 
 export function subscribeRecentInvestigations(user, onNext, onError) {
@@ -122,22 +233,9 @@ export function subscribeRecentInvestigations(user, onNext, onError) {
   );
 
   return onSnapshot(q,
-    (snap) => {
-      onNext(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
-    },
-    (err) => { console.error("[CyIntel] listener:", err); onError(err); }
+    (snap) => onNext(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
+    (err) => onError(err)
   );
-}
-
-export async function getInvestigation(user, firestoreId) {
-  if (!user?.uid) throw new Error("Sign in before reading.");
-  if (!firestoreId) throw new Error("firestoreId is required.");
-
-  const ref = doc(db, "users", user.uid, "investigations", firestoreId);
-  const snap = await getDoc(ref);
-  if (!snap.exists()) return null;
-
-  return snap.data();
 }
 
 export async function updateInvestigation(user, firestoreId, fields = {}) {
