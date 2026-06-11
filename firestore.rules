@@ -72,7 +72,8 @@ service cloud.firestore {
         allow update: if isOwner(uid)
           && request.resource.data.ownerId == uid;
 
-        allow delete: if false;
+        // Bug 3 fix: allow owners to delete their own investigation documents.
+        allow delete: if isOwner(uid);
       }
     }
 
