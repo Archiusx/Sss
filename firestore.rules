@@ -11,18 +11,14 @@ service cloud.firestore {
       return signedIn() && request.auth.uid == uid;
     }
 
-    // ── User profiles ────────────────────────────────────────────────────────
-
+    // ── User profiles ─────────────────────────────────────────────────────────
     match /users/{uid} {
-      // Any signed-in owner can read their own profile
-      allow get: if isOwner(uid);
+      allow get:  if isOwner(uid);
       allow list: if false;
 
-      // Allow creating a user profile — flexible keys so Google/email auth both work
+      // CREATE — new registration or first Google/phone sign-in
       allow create: if isOwner(uid)
         && request.resource.data.uid == uid
-        && request.resource.data.uid == request.auth.uid
-        && request.resource.data.keys().hasAll(['uid', 'createdAt'])
         && (request.resource.data.fullName == null
             || (request.resource.data.fullName is string
                 && request.resource.data.fullName.size() <= 120))
@@ -32,22 +28,23 @@ service cloud.firestore {
         && (request.resource.data.role == null
             || request.resource.data.role in ['analyst', 'investigator', 'admin']);
 
-      // Allow updates to own profile — immutable fields cannot change
+      // UPDATE — login refresh or profile edit.
+      // Only blocks changing the uid field (immutable identity).
+      // Does NOT block other fields — allows merging lastLogin etc.
       allow update: if isOwner(uid)
-        && request.resource.data.uid == resource.data.uid
-        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['uid']))
-        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['createdAt']));
+        && (
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny(['uid'])
+          || request.resource.data.uid == resource.data.uid
+        );
 
       allow delete: if false;
 
       // ── Investigations sub-collection ──────────────────────────────────────
-
       match /investigations/{investigationId} {
         allow get, list: if isOwner(uid);
 
         allow create: if isOwner(uid)
           && request.resource.data.ownerId == uid
-          && request.resource.data.ownerId == request.auth.uid
           && request.resource.data.caseId is string
           && request.resource.data.caseId.size() > 0
           && request.resource.data.caseId.size() <= 40
@@ -67,7 +64,7 @@ service cloud.firestore {
           && request.resource.data.sourceCounts is map
           && request.resource.data.data is map;
 
-        // Allow updating own investigations (re-run / overwrite)
+        // Allow overwriting/updating own investigations
         allow update: if isOwner(uid)
           && request.resource.data.ownerId == resource.data.ownerId;
 
