@@ -1,0 +1,83 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    // ── User profiles ────────────────────────────────────────────────────────
+
+    match /users/{uid} {
+      // Any signed-in owner can read their own profile
+      allow get: if isOwner(uid);
+      allow list: if false;
+
+      // Allow creating a user profile — flexible keys so Google/email auth both work
+      allow create: if isOwner(uid)
+        && request.resource.data.uid == uid
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.keys().hasAll(['uid', 'createdAt'])
+        && (request.resource.data.fullName == null
+            || (request.resource.data.fullName is string
+                && request.resource.data.fullName.size() <= 120))
+        && (request.resource.data.email == null
+            || (request.resource.data.email is string
+                && request.resource.data.email.size() <= 254))
+        && (request.resource.data.role == null
+            || request.resource.data.role in ['analyst', 'investigator', 'admin']);
+
+      // Allow updates to own profile — immutable fields cannot change
+      allow update: if isOwner(uid)
+        && request.resource.data.uid == resource.data.uid
+        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['uid']))
+        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['createdAt']));
+
+      allow delete: if false;
+
+      // ── Investigations sub-collection ──────────────────────────────────────
+
+      match /investigations/{investigationId} {
+        allow get, list: if isOwner(uid);
+
+        allow create: if isOwner(uid)
+          && request.resource.data.ownerId == uid
+          && request.resource.data.ownerId == request.auth.uid
+          && request.resource.data.caseId is string
+          && request.resource.data.caseId.size() > 0
+          && request.resource.data.caseId.size() <= 40
+          && request.resource.data.target is string
+          && request.resource.data.target.size() > 0
+          && request.resource.data.target.size() <= 2048
+          && request.resource.data.type is string
+          && request.resource.data.type.size() > 0
+          && request.resource.data.type.size() <= 40
+          && request.resource.data.typeLabel is string
+          && request.resource.data.typeLabel.size() <= 80
+          && request.resource.data.status in ['Collection', 'Analysis', 'Active', 'Completed']
+          && request.resource.data.risk in ['low', 'medium', 'high', 'critical']
+          && request.resource.data.platforms is list
+          && request.resource.data.summary is string
+          && request.resource.data.summary.size() <= 20000
+          && request.resource.data.sourceCounts is map
+          && request.resource.data.data is map;
+
+        // Allow updating own investigations (re-run / overwrite)
+        allow update: if isOwner(uid)
+          && request.resource.data.ownerId == resource.data.ownerId;
+
+        allow delete: if false;
+      }
+    }
+
+    // Catch-all deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
