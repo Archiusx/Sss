@@ -64,9 +64,13 @@ service cloud.firestore {
           && request.resource.data.sourceCounts is map
           && request.resource.data.data is map;
 
-        // Allow overwriting/updating own investigations
+        // Allow overwriting/updating own investigations.
+        // ownerId is checked against the incoming payload (not the existing doc)
+        // so this also works correctly when setDoc merge:true writes to a new path
+        // that was never committed (resource.data may not exist on first-time writes
+        // that race — the create rule above covers that case instead).
         allow update: if isOwner(uid)
-          && request.resource.data.ownerId == resource.data.ownerId;
+          && request.resource.data.ownerId == uid;
 
         allow delete: if false;
       }
