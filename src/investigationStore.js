@@ -30,25 +30,25 @@ function jsonClean(value) {
 function titleCase(v = "") {
   return v.replace(/\b\w/g, (c) => c.toUpperCase());
 }
+
 function riskFromConfidence(c = 0) {
   return c >= 80 ? "critical" : c >= 60 ? "high" : c >= 35 ? "medium" : "low";
 }
+
 function getPlatforms(inv) {
   const s = new Set();
   for (const f of inv.findings || []) if (f?.platform) s.add(String(f.platform).slice(0, 50));
   for (const p of inv.crawledPages || []) if (p?.extractor) s.add(String(p.extractor).slice(0, 50));
   return [...s].slice(0, 8);
 }
+
 function str(v, max = 2000) { return String(v ?? "").slice(0, max); }
 function num(v) { return Number(v) || 0; }
 
 export async function saveInvestigation(user, investigation) {
-  const safeUser = user?.uid ? user : await requireAuth();
-
-  if (!safeUser?.uid) throw new Error("Auth not ready");
-  if (!investigation?.id) throw new Error("Investigation has no ID");
-
-  console.log("[CyIntel] saveInvestigation called:", investigation.id);
+  const safeUser = user?.uid ? user : null;
+  if (!safeUser?.uid) throw new Error("Sign in before saving.");
+  if (!investigation?.id) throw new Error("Investigation has no ID.");
 
   const confidence = num(investigation?.stats?.confidence);
 
@@ -76,47 +76,19 @@ export async function saveInvestigation(user, investigation) {
 
   const cleanData = jsonClean(raw);
 
-  const ref = doc(
-    db,
-    "users",
-    safeUser.uid,
-    "investigations",
-    investigation.id
-  );
-
-  await setDoc(
-    ref,
-    {
-      ownerId: safeUser.uid,
-      caseId: investigation.id,
-      data: cleanData,
-      updatedAt: serverTimestamp(),
-      createdAt: serverTimestamp()
-    },
-    { merge: true }
-  );
-
-  console.log("[CyIntel] Firestore WRITE SUCCESS:", ref.path);
-  return investigation.id;
-}
-
-  // FIX: removed getDoc existence check (caused "client offline" false error)
   const docData = {
-    ownerId: str(user.uid, 128),
-    caseId: str(investigation.id, 40),
-    target: str(investigation.target, 2048),
-    type: str(investigation.type, 40),
-    typeLabel: titleCase(str(investigation.type, 40)).slice(0, 80),
+    ownerId: safeUser.uid,
+    caseId: investigation.id,
+    target: raw.target,
+    type: raw.type,
     status: "Completed",
     risk: riskFromConfidence(confidence),
     platforms: getPlatforms(investigation),
-    startedAt: str(investigation.startedAt || new Date().toISOString(), 40),
-    summary: str(investigation.gemini?.summary || "OSINT collection completed.", 20000),
+    summary: str(investigation.gemini?.summary || "OSINT completed", 20000),
     sourceCounts: {
       findings: num(investigation.findings?.length),
       searchLinks: num(investigation.searchLinks?.length),
       crawledPages: num(investigation.crawledPages?.length),
-      sources: num(investigation.stats?.sources),
       confidence,
     },
     data: cleanData,
@@ -124,9 +96,12 @@ export async function saveInvestigation(user, investigation) {
     createdAt: serverTimestamp()
   };
 
+  const ref = doc(db, "users", safeUser.uid, "investigations", investigation.id);
+
   await setDoc(ref, docData, { merge: true });
+
   console.log("[CyIntel] Firestore WRITE SUCCESS:", ref.path);
-  return ref.id;
+  return investigation.id;
 }
 
 function toMs(v) {
@@ -148,24 +123,7 @@ export function subscribeRecentInvestigations(user, onNext, onError) {
 
   return onSnapshot(q,
     (snap) => {
-      onNext(snap.docs.map((d) => {
-        const v = d.data();
-        const ms = toMs(v.createdAt) || toMs(v.startedAt);
-        return {
-          firestoreId: d.id,
-          id: v.caseId || d.id,
-          target: v.target || "Unknown",
-          type: v.typeLabel || titleCase(v.type || "unknown"),
-          platforms: v.platforms || [],
-          risk: v.risk || "low",
-          status: v.status || "Completed",
-          createdAt: v.createdAt,
-          createdAtMs: ms,
-          date: ms ? new Date(ms).toLocaleString() : "Just now",
-          sourceCounts: v.sourceCounts || {},
-          fullInvestigation: v.data || null,
-        };
-      }));
+      onNext(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
     },
     (err) => { console.error("[CyIntel] listener:", err); onError(err); }
   );
@@ -179,44 +137,19 @@ export async function getInvestigation(user, firestoreId) {
   const snap = await getDoc(ref);
   if (!snap.exists()) return null;
 
-  const v = snap.data();
-  const ms = toMs(v.createdAt) || toMs(v.startedAt);
-  return {
-    firestoreId: snap.id,
-    id: v.caseId || snap.id,
-    target: v.target || "Unknown",
-    type: v.typeLabel || titleCase(v.type || "unknown"),
-    platforms: v.platforms || [],
-    risk: v.risk || "low",
-    status: v.status || "Completed",
-    createdAt: v.createdAt,
-    createdAtMs: ms,
-    date: ms ? new Date(ms).toLocaleString() : "Just now",
-    sourceCounts: v.sourceCounts || {},
-    fullInvestigation: v.data || null,
-  };
+  return snap.data();
 }
 
 export async function updateInvestigation(user, firestoreId, fields = {}) {
   if (!user?.uid) throw new Error("Sign in before updating.");
-  if (!firestoreId) throw new Error("firestoreId is required.");
 
-  const allowed = ["status", "risk", "summary", "platforms", "data"];
-  const patch = {};
-  for (const key of allowed) {
-    if (key in fields) patch[key] = fields[key];
-  }
-  if (!Object.keys(patch).length) throw new Error("No updatable fields supplied.");
-
-  const clean = jsonClean({ ...patch, ownerId: str(user.uid, 128), updatedAt: null });
   const ref = doc(db, "users", user.uid, "investigations", firestoreId);
-  await updateDoc(ref, { ...clean, updatedAt: serverTimestamp() });
+  await updateDoc(ref, { ...fields, updatedAt: serverTimestamp() });
   return firestoreId;
 }
 
 export async function deleteInvestigation(user, firestoreId) {
   if (!user?.uid) throw new Error("Sign in before deleting.");
-  if (!firestoreId) throw new Error("firestoreId is required.");
 
   const ref = doc(db, "users", user.uid, "investigations", firestoreId);
   await deleteDoc(ref);
