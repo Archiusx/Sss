@@ -1,5 +1,5 @@
 import { initializeApp } from "firebase/app";
-import { getAuth, browserLocalPersistence, indexedDBLocalPersistence, setPersistence, signInAnonymously } from "firebase/auth";
+import { getAuth, browserLocalPersistence, indexedDBLocalPersistence, setPersistence } from "firebase/auth";
 import { initializeFirestore, setLogLevel } from "firebase/firestore";
 import { getDatabase } from "firebase/database";
 
@@ -46,20 +46,12 @@ export const authReady = setPersistence(auth, indexedDBLocalPersistence)
   .catch(() => setPersistence(auth, browserLocalPersistence))
   .catch(() => {});
 
-// 🔥 CRITICAL FIX: ensure user always exists (prevents Firestore "offline" false failures)
+// Auth is intentionally not auto-created here. Creating an anonymous session on
+// page load can surface provider/domain errors (including auth/error-code:-40)
+// before the user chooses a login method and can bypass the login screen.
 async function ensureAuth() {
   await authReady;
-
-  if (!auth.currentUser) {
-    try {
-      await signInAnonymously(auth);
-      console.info("[CyIntel] Anonymous auth session created");
-    } catch (err) {
-      console.error("[CyIntel] Anonymous auth failed:", err);
-    }
-  }
+  return auth.currentUser;
 }
-
-ensureAuth();
 
 export { ensureAuth };

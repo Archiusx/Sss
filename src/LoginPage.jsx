@@ -47,13 +47,19 @@ function authErr(code) {
     "auth/too-many-requests":         "Too many attempts. Please try again later.",
     "auth/popup-closed-by-user":      "Sign-in cancelled.",
     "auth/cancelled-popup-request":   "A sign-in window is already open.",
+    "auth/error-code:-40":            "Authentication was blocked by this browser session. Refresh once, allow popups/cookies for this site, and try again.",
+    "auth/internal-error":            "Authentication service returned an internal error. Refresh once and try again.",
+    "auth/unauthorized-domain":       "This Vercel domain is not authorized in Firebase Authentication. Add the deployed domain in Firebase Auth settings.",
+    "auth/network-request-failed":    "Network/auth connection failed. Check your internet connection and try again.",
     "auth/invalid-phone-number":      "Enter a valid number e.g. +91 9XXXXXXXXX.",
     "auth/code-expired":              "OTP expired. Please request a new one.",
     "auth/invalid-verification-code": "Incorrect OTP. Please check and retry.",
     "permission-denied":           "Firestore rules blocked this write. Deploy the included firestore.rules file and try again.",
     "failed-precondition":         "Firestore needs an index or configuration change. Check the console for details.",
     "unavailable":                 "Firestore is temporarily unavailable. Please retry after a moment.",
-  })[code] || `Error: ${code}`;
+  })[code] || (String(code).includes("error-code:-40")
+    ? "Authentication was blocked by this browser session. Refresh once, allow popups/cookies for this site, and try again."
+    : `Error: ${code}`);
 }
 
 // ── The 3 Asynchronous Database Operations ──────────────────────────────────
