@@ -1114,6 +1114,11 @@ const desktopApps = [
   { id:"graph", title:"Relationship Graph", icon:Network, accent:"#f97316" },
   { id:"report", title:"Reports", icon:FileText, accent:"#dc2626" },
 ];
+const desktopShortcuts = [
+  ...desktopApps,
+  { id:"settings", title:"Settings", icon:Settings, accent:"#64748b", action:"settings" },
+  { id:"sync", title:"Sync Workspace", icon:RefreshCw, accent:"#22c55e", action:"sync" },
+];
 const WINDOWS_WALLPAPER = "https://4kwallpapers.com/images/walls/thumbs_3t/5616.jpg";
 const defaultWindowRects = {
   dashboard: { x: 132, y: 54, w: 1040, h: 650 },
@@ -1139,6 +1144,9 @@ function clampWindowRect(rect) {
     y: Math.max(8, Math.min(rect.y, desktopH - h - 8)),
   };
 }
+function CloudIcon() {
+  return <svg width="40" height="28" viewBox="0 0 64 44" fill="none" aria-hidden="true"><path d="M21 40h28a13 13 0 0 0 1-26A19 19 0 0 0 13 20 10 10 0 0 0 21 40Z" fill="white" fillOpacity=".96"/></svg>;
+}
 function SyncInvestigationIcon({ size=18 }) {
   return <svg width={size} height={size} viewBox="0 0 48 48" fill="none" aria-hidden="true">
     <rect x="6" y="8" width="28" height="28" rx="8" fill="url(#syncA)"/>
@@ -1156,33 +1164,51 @@ function DesktopWindow({ win, children, onFocus, onClose, onMinimize, onMaximize
   const Icon = meta.icon;
   const rect = win.maximized ? { x: 8, y: 8, w: window.innerWidth - 16, h: window.innerHeight - 70 } : win.rect;
   const action = useRef(null);
+  const frame = useRef(null);
+  const pendingRect = useRef(null);
 
+  const flushMove = () => {
+    frame.current = null;
+    if (pendingRect.current) onMove(win.id, pendingRect.current);
+  };
+  const scheduleMove = (nextRect) => {
+    pendingRect.current = nextRect;
+    if (!frame.current) frame.current = window.requestAnimationFrame(flushMove);
+  };
   const cleanupPointer = () => {
+    if (frame.current) window.cancelAnimationFrame(frame.current);
+    if (pendingRect.current) onMove(win.id, pendingRect.current);
+    frame.current = null;
+    pendingRect.current = null;
     document.body.classList.remove("os-pointer-active");
     window.removeEventListener("pointermove", handlePointerMove);
     window.removeEventListener("pointerup", stopPointerAction);
+    window.removeEventListener("pointercancel", stopPointerAction);
     action.current = null;
   };
   const startPointerAction = (e, type) => {
     if (e.button !== 0 || (type === "drag" && win.maximized)) return;
     e.preventDefault();
     e.stopPropagation();
+    e.currentTarget.setPointerCapture?.(e.pointerId);
     onFocus(win.id);
     action.current = { type, sx:e.clientX, sy:e.clientY, rect:{ ...win.rect } };
     document.body.classList.add("os-pointer-active");
-    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointermove", handlePointerMove, { passive:false });
     window.addEventListener("pointerup", stopPointerAction);
+    window.addEventListener("pointercancel", stopPointerAction);
   };
   const handlePointerMove = (e) => {
     if (!action.current) return;
+    e.preventDefault();
     const { type, sx, sy, rect:startRect } = action.current;
     const dx = e.clientX - sx;
     const dy = e.clientY - sy;
     if (type === "drag") {
-      onMove(win.id, { ...startRect, x:startRect.x + dx, y:startRect.y + dy });
+      scheduleMove({ ...startRect, x:startRect.x + dx, y:startRect.y + dy });
       return;
     }
-    onMove(win.id, { ...startRect, w:startRect.w + dx, h:startRect.h + dy });
+    scheduleMove({ ...startRect, w:startRect.w + dx, h:startRect.h + dy });
   };
   const stopPointerAction = () => cleanupPointer();
 
@@ -1298,6 +1324,11 @@ const handleLogout = async () => {
     setSyncingWorkspace(true);
     window.setTimeout(() => setSyncingWorkspace(false), 1100);
   };
+  const openShortcut = (shortcut) => {
+    if (shortcut.action === "settings") { setSettingsOpen(true); return; }
+    if (shortcut.action === "sync") { syncWorkspace(); return; }
+    openWindow(shortcut.id);
+  };
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", dark);
@@ -1354,12 +1385,15 @@ const handleLogout = async () => {
         .os-shell::before { content:""; position:absolute; inset:0; background-image:linear-gradient(rgba(14,30,68,.12), rgba(2,6,23,.18)), url("${WINDOWS_WALLPAPER}"); background-size:cover; background-position:center; transform:scale(1.012); filter:saturate(1.08); }
         .os-desktop { position:absolute; inset:0 0 54px 0; overflow:hidden; }
         .os-desktop::after { content:""; position:absolute; inset:0; background:radial-gradient(circle at 50% 42%, rgba(255,255,255,.08), transparent 44%); pointer-events:none; }
-        .desktop-icons { position:absolute; z-index:2; top:22px; left:18px; display:grid; gap:14px; }
-        .desktop-icon { width:92px; padding:10px 6px; color:white; border:1px solid transparent; border-radius:14px; text-shadow:0 1px 10px rgba(0,0,0,.4); transition:.18s ease; }
-        .desktop-icon:hover { background:rgba(255,255,255,.13); border-color:rgba(255,255,255,.18); transform:translateY(-1px); }
-        .desktop-icon-badge { width:46px; height:46px; margin:0 auto 7px; border-radius:14px; display:flex; align-items:center; justify-content:center; box-shadow:0 14px 34px rgba(0,0,0,.25), inset 0 1px rgba(255,255,255,.35); }
+        .desktop-icons { position:absolute; z-index:2; top:24px; left:clamp(18px, 3vw, 54px); right:clamp(18px, 3vw, 54px); display:grid; grid-template-columns:repeat(auto-fill, minmax(86px, 1fr)); grid-auto-rows:96px; gap:18px 22px; align-content:start; pointer-events:none; }
+        .weather-widget + .desktop-icons { padding-left:min(390px, 34vw); }
+        .desktop-icon { width:86px; min-height:92px; padding:7px 5px; color:white; border:1px solid transparent; border-radius:16px; text-shadow:0 2px 12px rgba(0,0,0,.55); transition:transform .16s ease, background .16s ease, border-color .16s ease; pointer-events:auto; justify-self:center; }
+        .desktop-icon:hover { background:rgba(255,255,255,.14); border-color:rgba(255,255,255,.22); transform:translateY(-2px) scale(1.02); }
+        .desktop-icon-badge { width:54px; height:54px; margin:0 auto 7px; border-radius:16px; display:flex; align-items:center; justify-content:center; box-shadow:0 14px 34px rgba(0,0,0,.25), inset 0 1px rgba(255,255,255,.42); }
+        .weather-widget { position:absolute; z-index:3; left:clamp(18px, 3vw, 54px); top:clamp(18px, 4vh, 44px); width:min(360px, calc(100vw - 36px)); padding:18px 20px; border-radius:28px; color:white; background:linear-gradient(135deg, rgba(14,165,233,.68), rgba(30,64,175,.58)); border:1px solid rgba(255,255,255,.28); box-shadow:0 24px 70px rgba(15,23,42,.28); backdrop-filter:blur(26px); pointer-events:none; }
+        .weather-temp { font-size:clamp(48px, 7vw, 78px); line-height:.9; font-weight:300; letter-spacing:-.08em; }
         .os-pointer-active, .os-pointer-active * { cursor:grabbing !important; user-select:none !important; }
-        .os-window { position:absolute; overflow:hidden; border-radius:12px; background:rgba(255,255,255,.92); border:1px solid rgba(255,255,255,.72); box-shadow:0 24px 70px rgba(15,23,42,.28), 0 0 0 1px rgba(15,23,42,.06); backdrop-filter:blur(24px); transition:box-shadow .16s ease, transform .16s ease, opacity .16s ease; }
+        .os-window { position:absolute; overflow:hidden; border-radius:12px; background:rgba(255,255,255,.92); border:1px solid rgba(255,255,255,.72); box-shadow:0 24px 70px rgba(15,23,42,.28), 0 0 0 1px rgba(15,23,42,.06); backdrop-filter:blur(24px); transition:box-shadow .16s ease, opacity .16s ease; container-type:size; will-change:left, top, width, height; }
         .dark .os-window { background:rgba(15,23,42,.9); border-color:rgba(255,255,255,.2); }
         .os-window:hover { box-shadow:0 30px 90px rgba(15,23,42,.36), 0 0 0 1px rgba(37,99,235,.18); }
         .os-window.maximized { border-radius:10px; }
@@ -1367,7 +1401,9 @@ const handleLogout = async () => {
         .dark .os-titlebar { background:linear-gradient(180deg, rgba(30,41,59,.9), rgba(15,23,42,.78)); }
         .os-title-icon { width:24px; height:24px; border-radius:7px; display:flex; align-items:center; justify-content:center; }
         .os-window-controls { display:flex; align-items:center; gap:1px; } .os-control { width:42px; height:30px; border:0; background:transparent; border-radius:6px; color:var(--text-sec); font-weight:700; line-height:1; } .os-control:hover { background:rgba(148,163,184,.18); } .os-control.close:hover { background:#e81123; color:white; }
-        .os-window-body { height:calc(100% - 40px); overflow:auto; background:var(--bg-page); }
+        .os-window-body { height:calc(100% - 40px); overflow:auto; overflow-x:hidden; background:var(--bg-page); overscroll-behavior:contain; }
+        @container (max-width: 760px) { .os-window-body > div { padding:14px !important; } .os-window-body .grid { grid-template-columns:1fr !important; } .os-window-body table { font-size:10px; } .os-window-body h2 { font-size:16px !important; } .os-window-body h3 { font-size:13px !important; } }
+        @container (max-height: 480px) { .os-window-body > div { padding-block:10px !important; } .os-window-body .space-y-6 > :not([hidden]) ~ :not([hidden]) { margin-top:12px !important; } }
         .os-resize-handle { position:absolute; right:0; bottom:0; width:18px; height:18px; border:0; background:linear-gradient(135deg, transparent 50%, rgba(59,130,246,.55) 50%); cursor:nwse-resize; opacity:.6; touch-action:none; }
         .os-resize-handle:hover { opacity:1; }
         .taskbar { position:absolute; left:0; right:0; bottom:0; height:54px; z-index:10000; display:grid; grid-template-columns:1fr auto 1fr; align-items:center; gap:8px; padding:6px 12px; border-top:1px solid rgba(255,255,255,.32); background:rgba(239,246,255,.72); backdrop-filter:blur(24px); box-shadow:0 -10px 40px rgba(15,23,42,.12); }
@@ -1391,13 +1427,17 @@ const handleLogout = async () => {
         .sync-btn.syncing svg { animation:spin 1s linear infinite; }
         .sidebar-overlay { display:none; } .sidebar-drawer { display:none; }
         .dk-topnav { display:none; }
-        @media (max-width:767px) { .desktop-icons { grid-auto-flow:column; top:auto; bottom:64px; max-width:100vw; overflow:auto; } .os-window { max-width:calc(100vw - 16px); max-height:calc(100dvh - 76px); } .start-menu-grid { grid-template-columns:repeat(3, 1fr); } .sync-btn span, .task-btn span { display:none; } .taskbar { grid-template-columns:auto 1fr auto; padding-inline:8px; } }
+        @media (max-width:767px) { .weather-widget { display:none; } .weather-widget + .desktop-icons { padding-left:0; } .desktop-icons { grid-template-columns:repeat(4, minmax(70px, 1fr)); grid-auto-rows:86px; gap:10px 8px; top:14px; left:8px; right:8px; bottom:64px; overflow:auto; } .desktop-icon { width:74px; font-size:10px; } .desktop-icon-badge { width:48px; height:48px; } .os-window { max-width:calc(100vw - 16px); max-height:calc(100dvh - 76px); } .start-menu-grid { grid-template-columns:repeat(3, 1fr); } .sync-btn span, .task-btn span { display:none; } .taskbar { grid-template-columns:auto 1fr auto; padding-inline:8px; } }
       `}</style>
       <div className="os-desktop">
+        <div className="weather-widget">
+          <div className="flex items-start justify-between gap-4"><div><div className="text-lg font-semibold">Cyber Division</div><div className="weather-temp">38°</div></div><div className="text-right pt-2"><CloudIcon/><div className="text-xl font-bold mt-2">Secure</div><div className="text-sm opacity-85">H:38° L:29°</div></div></div>
+          <div className="mt-4 grid grid-cols-5 gap-3 text-center text-sm opacity-95">{["15","16","17","18","19"].map((d,i)=><div key={d}><div className="font-semibold">{d}</div><div className="text-xl my-1">☁</div><div className="font-bold">{38-i}°</div></div>)}</div>
+        </div>
         <div className="desktop-icons">
-          {desktopApps.map(app => <button key={app.id} className="desktop-icon" onDoubleClick={() => openWindow(app.id)} onClick={() => openWindow(app.id)}>
-            <span className="desktop-icon-badge" style={{ background:`linear-gradient(135deg, ${app.accent}, #111827)` }}><app.icon size={22}/></span>
-            <span className="block text-[11px] leading-tight font-medium">{app.title}</span>
+          {desktopShortcuts.map(app => <button key={app.id} className="desktop-icon" onDoubleClick={() => openShortcut(app)} onClick={() => openShortcut(app)}>
+            <span className="desktop-icon-badge" style={{ background:`linear-gradient(135deg, ${app.accent}, #111827)` }}><app.icon size={24}/></span>
+            <span className="block text-[11px] leading-tight font-medium truncate">{app.title}</span>
           </button>)}
         </div>
         {investigationError && investigationError.includes("Firestore save failed") && <div style={{ position:"absolute", top:12, right:16, zIndex:9999, maxWidth:560, background:"#fef2f2", border:"1px solid #fecaca", borderRadius:12, padding:"10px 12px", display:"flex", alignItems:"center", gap:8 }}><span style={{ fontSize:12, color:"#b91c1c", fontWeight:500 }}>⚠️ {investigationError}</span><button onClick={() => setInvestigationError("")} style={{ fontSize:11, color:"#b91c1c" }}>Dismiss</button></div>}
