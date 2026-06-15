@@ -1114,19 +1114,30 @@ const desktopApps = [
   { id:"graph", title:"Relationship Graph", icon:Network, accent:"#f97316" },
   { id:"report", title:"Reports", icon:FileText, accent:"#dc2626" },
 ];
+const WINDOWS_WALLPAPER = "https://4kwallpapers.com/images/walls/thumbs_3t/5616.jpg";
 const defaultWindowRects = {
-  dashboard: { x: 34, y: 28, w: 1120, h: 720 },
-  osint: { x: 88, y: 58, w: 1080, h: 700 },
-  "ai-analysis": { x: 132, y: 86, w: 1040, h: 680 },
-  graph: { x: 164, y: 112, w: 1100, h: 690 },
-  report: { x: 204, y: 72, w: 1060, h: 700 },
+  dashboard: { x: 132, y: 54, w: 1040, h: 650 },
+  osint: { x: 186, y: 82, w: 980, h: 640 },
+  "ai-analysis": { x: 238, y: 116, w: 960, h: 620 },
+  graph: { x: 286, y: 146, w: 1000, h: 620 },
+  report: { x: 330, y: 92, w: 980, h: 640 },
 };
 function clampWindowRect(rect) {
-  const maxW = Math.max(360, window.innerWidth - 24);
-  const maxH = Math.max(320, window.innerHeight - 84);
-  const w = Math.min(rect.w, maxW);
-  const h = Math.min(rect.h, maxH);
-  return { ...rect, w, h, x: Math.max(8, Math.min(rect.x, window.innerWidth - w - 8)), y: Math.max(8, Math.min(rect.y, window.innerHeight - h - 58)) };
+  const desktopW = window.innerWidth;
+  const desktopH = window.innerHeight - 58;
+  const minW = Math.min(420, Math.max(320, desktopW - 20));
+  const minH = Math.min(300, Math.max(240, desktopH - 20));
+  const maxW = Math.max(minW, desktopW - 18);
+  const maxH = Math.max(minH, desktopH - 18);
+  const w = Math.max(minW, Math.min(rect.w, maxW));
+  const h = Math.max(minH, Math.min(rect.h, maxH));
+  return {
+    ...rect,
+    w,
+    h,
+    x: Math.max(8, Math.min(rect.x, desktopW - w - 8)),
+    y: Math.max(8, Math.min(rect.y, desktopH - h - 8)),
+  };
 }
 function SyncInvestigationIcon({ size=18 }) {
   return <svg width={size} height={size} viewBox="0 0 48 48" fill="none" aria-hidden="true">
@@ -1143,34 +1154,49 @@ function SyncInvestigationIcon({ size=18 }) {
 function DesktopWindow({ win, children, onFocus, onClose, onMinimize, onMaximize, onMove }) {
   const meta = desktopApps.find(a => a.id === win.id) || desktopApps[0];
   const Icon = meta.icon;
-  const rect = win.maximized ? { x: 10, y: 10, w: window.innerWidth - 20, h: window.innerHeight - 74 } : win.rect;
-  const drag = useRef(null);
-  const startDrag = (e) => {
-    if (win.maximized || e.button !== 0) return;
+  const rect = win.maximized ? { x: 8, y: 8, w: window.innerWidth - 16, h: window.innerHeight - 70 } : win.rect;
+  const action = useRef(null);
+
+  const cleanupPointer = () => {
+    document.body.classList.remove("os-pointer-active");
+    window.removeEventListener("pointermove", handlePointerMove);
+    window.removeEventListener("pointerup", stopPointerAction);
+    action.current = null;
+  };
+  const startPointerAction = (e, type) => {
+    if (e.button !== 0 || (type === "drag" && win.maximized)) return;
+    e.preventDefault();
+    e.stopPropagation();
     onFocus(win.id);
-    drag.current = { sx:e.clientX, sy:e.clientY, x:win.rect.x, y:win.rect.y };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", stop);
+    action.current = { type, sx:e.clientX, sy:e.clientY, rect:{ ...win.rect } };
+    document.body.classList.add("os-pointer-active");
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", stopPointerAction);
   };
-  const move = (e) => {
-    if (!drag.current) return;
-    onMove(win.id, { ...win.rect, x: drag.current.x + e.clientX - drag.current.sx, y: drag.current.y + e.clientY - drag.current.sy });
+  const handlePointerMove = (e) => {
+    if (!action.current) return;
+    const { type, sx, sy, rect:startRect } = action.current;
+    const dx = e.clientX - sx;
+    const dy = e.clientY - sy;
+    if (type === "drag") {
+      onMove(win.id, { ...startRect, x:startRect.x + dx, y:startRect.y + dy });
+      return;
+    }
+    onMove(win.id, { ...startRect, w:startRect.w + dx, h:startRect.h + dy });
   };
-  const stop = () => {
-    drag.current = null;
-    window.removeEventListener("pointermove", move);
-    window.removeEventListener("pointerup", stop);
-  };
+  const stopPointerAction = () => cleanupPointer();
+
   return <section className={cn("os-window", win.maximized && "maximized")} onPointerDown={()=>onFocus(win.id)} style={{ left:rect.x, top:rect.y, width:rect.w, height:rect.h, zIndex:win.z }}>
-    <div className="os-titlebar" onPointerDown={startDrag} onDoubleClick={()=>onMaximize(win.id)}>
+    <div className="os-titlebar" onPointerDown={(e)=>startPointerAction(e, "drag")} onDoubleClick={()=>onMaximize(win.id)}>
       <div className="flex items-center gap-2 min-w-0"><span className="os-title-icon" style={{ background:`${meta.accent}22`, color:meta.accent }}><Icon size={14}/></span><span className="truncate text-xs font-semibold">{pageTitles[win.id]?.title || meta.title}</span></div>
       <div className="os-window-controls">
-        <button className="os-control min" onClick={(e)=>{e.stopPropagation(); onMinimize(win.id);}} title="Minimize">—</button>
-        <button className="os-control max" onClick={(e)=>{e.stopPropagation(); onMaximize(win.id);}} title="Maximize">□</button>
-        <button className="os-control close" onClick={(e)=>{e.stopPropagation(); onClose(win.id);}} title="Close">×</button>
+        <button className="os-control min" onPointerDown={(e)=>e.stopPropagation()} onClick={(e)=>{e.stopPropagation(); onMinimize(win.id);}} title="Minimize">−</button>
+        <button className="os-control max" onPointerDown={(e)=>e.stopPropagation()} onClick={(e)=>{e.stopPropagation(); onMaximize(win.id);}} title="Maximize">□</button>
+        <button className="os-control close" onPointerDown={(e)=>e.stopPropagation()} onClick={(e)=>{e.stopPropagation(); onClose(win.id);}} title="Close">×</button>
       </div>
     </div>
     <div className="os-window-body scrollbar-thin">{children}</div>
+    {!win.maximized && <button className="os-resize-handle" onPointerDown={(e)=>startPointerAction(e, "resize")} aria-label="Resize window" title="Resize"/>}
   </section>;
 }
 
@@ -1227,6 +1253,7 @@ const handleLogout = async () => {
   const [syncingWorkspace, setSyncingWorkspace] = useState(false);
   const [startMenuOpen, setStartMenuOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [clock, setClock] = useState(() => new Date());
 
   const nextZ = () => {
     let raised = 0;
@@ -1249,10 +1276,24 @@ const handleLogout = async () => {
       return [...ws, { id, rect:clampWindowRect({ ...defaultWindowRects[id], x:defaultWindowRects[id].x + offset, y:defaultWindowRects[id].y + offset }), minimized:false, maximized:false, z:raised }];
     });
   };
-  const closeWindow = (id) => setWindows(ws => ws.length > 1 ? ws.filter(w => w.id !== id) : ws.map(w => ({ ...w, minimized:true })));
-  const minimizeWindow = (id) => setWindows(ws => ws.map(w => w.id === id ? { ...w, minimized:true } : w));
+  const activateTopVisibleWindow = (list) => {
+    const next = list.filter(w => !w.minimized).sort((a,b) => b.z - a.z)[0];
+    if (next) setActivePage(next.id);
+  };
+  const closeWindow = (id) => setWindows(ws => {
+    const next = ws.length > 1 ? ws.filter(w => w.id !== id) : ws.map(w => ({ ...w, minimized:true }));
+    activateTopVisibleWindow(next);
+    return next;
+  });
+  const minimizeWindow = (id) => setWindows(ws => {
+    const next = ws.map(w => w.id === id ? { ...w, minimized:true } : w);
+    activateTopVisibleWindow(next);
+    return next;
+  });
   const maximizeWindow = (id) => setWindows(ws => ws.map(w => w.id === id ? { ...w, maximized:!w.maximized } : w));
   const moveWindow = (id, rect) => setWindows(ws => ws.map(w => w.id === id ? { ...w, rect:clampWindowRect(rect) } : w));
+  const openAllWindows = () => desktopApps.forEach((app, idx) => window.setTimeout(() => openWindow(app.id), idx * 70));
+  const showDesktop = () => setWindows(ws => ws.map(w => ({ ...w, minimized:true })));
   const syncWorkspace = () => {
     setSyncingWorkspace(true);
     window.setTimeout(() => setSyncingWorkspace(false), 1100);
@@ -1261,6 +1302,11 @@ const handleLogout = async () => {
   useEffect(() => {
     document.documentElement.classList.toggle("dark", dark);
   }, [dark]);
+
+  useEffect(() => {
+    const t = window.setInterval(() => setClock(new Date()), 30000);
+    return () => window.clearInterval(t);
+  }, []);
 
   useEffect(() => {
     setRecentInvestigationError("");
@@ -1304,33 +1350,48 @@ const handleLogout = async () => {
         @keyframes spin { to { transform: rotate(360deg); } } @keyframes pulse { 0%,100%{opacity:1}50%{opacity:.5} }
         .animate-spin { animation: spin 1s linear infinite; } .animate-pulse { animation: pulse 2s cubic-bezier(.4,0,.6,1) infinite; }
         .scrollbar-thin { scrollbar-width: thin; } .scrollbar-thin::-webkit-scrollbar { width: 6px; height: 6px; } .scrollbar-thin::-webkit-scrollbar-thumb { background: rgba(148,163,184,.65); border-radius: 999px; }
-        .os-shell { position:fixed; inset:0; overflow:hidden; color:var(--text-primary); background: radial-gradient(circle at 20% 15%, rgba(59,130,246,.45), transparent 28%), radial-gradient(circle at 80% 10%, rgba(124,58,237,.34), transparent 26%), linear-gradient(135deg,#0f172a,#172554 48%,#111827); }
-        .os-desktop { position:absolute; inset:0 0 48px 0; overflow:hidden; }
-        .os-desktop::after { content:""; position:absolute; inset:0; background-image:linear-gradient(rgba(255,255,255,.045) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.045) 1px, transparent 1px); background-size:42px 42px; mask-image:linear-gradient(to bottom, black, transparent 85%); pointer-events:none; }
+        .os-shell { position:fixed; inset:0; overflow:hidden; color:var(--text-primary); background:#0f172a; }
+        .os-shell::before { content:""; position:absolute; inset:0; background-image:linear-gradient(rgba(14,30,68,.12), rgba(2,6,23,.18)), url("${WINDOWS_WALLPAPER}"); background-size:cover; background-position:center; transform:scale(1.012); filter:saturate(1.08); }
+        .os-desktop { position:absolute; inset:0 0 54px 0; overflow:hidden; }
+        .os-desktop::after { content:""; position:absolute; inset:0; background:radial-gradient(circle at 50% 42%, rgba(255,255,255,.08), transparent 44%); pointer-events:none; }
         .desktop-icons { position:absolute; z-index:2; top:22px; left:18px; display:grid; gap:14px; }
         .desktop-icon { width:92px; padding:10px 6px; color:white; border:1px solid transparent; border-radius:14px; text-shadow:0 1px 10px rgba(0,0,0,.4); transition:.18s ease; }
         .desktop-icon:hover { background:rgba(255,255,255,.13); border-color:rgba(255,255,255,.18); transform:translateY(-1px); }
         .desktop-icon-badge { width:46px; height:46px; margin:0 auto 7px; border-radius:14px; display:flex; align-items:center; justify-content:center; box-shadow:0 14px 34px rgba(0,0,0,.25), inset 0 1px rgba(255,255,255,.35); }
-        .os-window { position:absolute; overflow:hidden; border-radius:14px; background:var(--bg-card); border:1px solid rgba(255,255,255,.34); box-shadow:0 28px 70px rgba(2,6,23,.42), 0 0 0 1px rgba(15,23,42,.12); backdrop-filter:blur(18px); transition:box-shadow .18s ease, transform .18s ease; }
-        .os-window.maximized { border-radius:12px; }
-        .os-titlebar { height:38px; display:flex; align-items:center; justify-content:space-between; padding:0 8px 0 12px; background:linear-gradient(180deg, rgba(255,255,255,.78), rgba(241,245,249,.62)); border-bottom:1px solid var(--border); cursor:grab; user-select:none; color:var(--text-primary); }
+        .os-pointer-active, .os-pointer-active * { cursor:grabbing !important; user-select:none !important; }
+        .os-window { position:absolute; overflow:hidden; border-radius:12px; background:rgba(255,255,255,.92); border:1px solid rgba(255,255,255,.72); box-shadow:0 24px 70px rgba(15,23,42,.28), 0 0 0 1px rgba(15,23,42,.06); backdrop-filter:blur(24px); transition:box-shadow .16s ease, transform .16s ease, opacity .16s ease; }
+        .dark .os-window { background:rgba(15,23,42,.9); border-color:rgba(255,255,255,.2); }
+        .os-window:hover { box-shadow:0 30px 90px rgba(15,23,42,.36), 0 0 0 1px rgba(37,99,235,.18); }
+        .os-window.maximized { border-radius:10px; }
+        .os-titlebar { height:40px; display:flex; align-items:center; justify-content:space-between; padding:0 8px 0 12px; background:linear-gradient(180deg, rgba(255,255,255,.82), rgba(241,245,249,.7)); border-bottom:1px solid rgba(148,163,184,.28); cursor:grab; user-select:none; touch-action:none; color:var(--text-primary); }
         .dark .os-titlebar { background:linear-gradient(180deg, rgba(30,41,59,.9), rgba(15,23,42,.78)); }
         .os-title-icon { width:24px; height:24px; border-radius:7px; display:flex; align-items:center; justify-content:center; }
-        .os-window-controls { display:flex; align-items:center; gap:2px; } .os-control { width:34px; height:28px; border:0; background:transparent; border-radius:7px; color:var(--text-sec); font-weight:700; line-height:1; } .os-control:hover { background:rgba(148,163,184,.16); } .os-control.close:hover { background:#ef4444; color:white; }
-        .os-window-body { height:calc(100% - 38px); overflow:auto; background:var(--bg-page); }
-        .taskbar { position:absolute; left:10px; right:10px; bottom:8px; height:46px; z-index:10000; display:flex; align-items:center; gap:8px; padding:6px; border:1px solid rgba(255,255,255,.22); border-radius:14px; background:rgba(15,23,42,.72); backdrop-filter:blur(22px); box-shadow:0 18px 60px rgba(0,0,0,.32); }
-        .start-menu { position:absolute; z-index:10001; left:10px; bottom:62px; width:min(440px, calc(100vw - 20px)); padding:18px; border-radius:22px; color:white; background:linear-gradient(180deg, rgba(30,41,59,.92), rgba(15,23,42,.92)); border:1px solid rgba(255,255,255,.18); box-shadow:0 28px 80px rgba(0,0,0,.45); backdrop-filter:blur(26px); }
-        .start-menu-grid { display:grid; grid-template-columns:repeat(3, 1fr); gap:10px; margin-top:14px; }
-        .start-tile { min-height:82px; border:1px solid rgba(255,255,255,.12); background:rgba(255,255,255,.08); border-radius:16px; padding:10px; color:white; text-align:left; transition:.18s ease; }
-        .start-tile:hover { transform:translateY(-2px); background:rgba(59,130,246,.28); border-color:rgba(147,197,253,.35); }
-        .settings-panel { position:absolute; z-index:10001; right:10px; bottom:62px; width:min(360px, calc(100vw - 20px)); padding:16px; border-radius:20px; color:white; background:rgba(15,23,42,.88); border:1px solid rgba(255,255,255,.18); box-shadow:0 28px 80px rgba(0,0,0,.42); backdrop-filter:blur(26px); }
+        .os-window-controls { display:flex; align-items:center; gap:1px; } .os-control { width:42px; height:30px; border:0; background:transparent; border-radius:6px; color:var(--text-sec); font-weight:700; line-height:1; } .os-control:hover { background:rgba(148,163,184,.18); } .os-control.close:hover { background:#e81123; color:white; }
+        .os-window-body { height:calc(100% - 40px); overflow:auto; background:var(--bg-page); }
+        .os-resize-handle { position:absolute; right:0; bottom:0; width:18px; height:18px; border:0; background:linear-gradient(135deg, transparent 50%, rgba(59,130,246,.55) 50%); cursor:nwse-resize; opacity:.6; touch-action:none; }
+        .os-resize-handle:hover { opacity:1; }
+        .taskbar { position:absolute; left:0; right:0; bottom:0; height:54px; z-index:10000; display:grid; grid-template-columns:1fr auto 1fr; align-items:center; gap:8px; padding:6px 12px; border-top:1px solid rgba(255,255,255,.32); background:rgba(239,246,255,.72); backdrop-filter:blur(24px); box-shadow:0 -10px 40px rgba(15,23,42,.12); }
+        .dark .taskbar { background:rgba(15,23,42,.7); border-color:rgba(255,255,255,.12); }
+        .taskbar-center { display:flex; align-items:center; gap:7px; justify-content:center; min-width:0; }
+        .taskbar-right { display:flex; align-items:center; gap:6px; justify-content:flex-end; color:#0f172a; }
+        .dark .taskbar-right { color:white; }
+        .start-menu { position:absolute; z-index:10001; left:50%; transform:translateX(-50%); bottom:66px; width:min(620px, calc(100vw - 24px)); padding:18px; border-radius:10px; color:#0f172a; background:rgba(248,250,252,.86); border:1px solid rgba(255,255,255,.72); box-shadow:0 28px 90px rgba(15,23,42,.35); backdrop-filter:blur(28px); }
+        .dark .start-menu { color:white; background:rgba(15,23,42,.88); border-color:rgba(255,255,255,.18); }
+        .start-search { width:100%; height:34px; border:1px solid rgba(148,163,184,.35); border-radius:4px; background:rgba(255,255,255,.78); padding:0 12px; font-size:12px; outline:none; }
+        .dark .start-search { background:rgba(15,23,42,.72); color:white; }
+        .start-menu-grid { display:grid; grid-template-columns:repeat(6, minmax(64px,1fr)); gap:10px; margin-top:14px; }
+        .start-tile { min-height:76px; border:1px solid transparent; background:transparent; border-radius:8px; padding:8px 6px; color:inherit; text-align:center; transition:.16s ease; }
+        .start-tile:hover { transform:translateY(-1px); background:rgba(59,130,246,.12); border-color:rgba(37,99,235,.18); }
+        .settings-panel { position:absolute; z-index:10001; right:12px; bottom:66px; width:min(360px, calc(100vw - 24px)); padding:16px; border-radius:16px; color:#0f172a; background:rgba(248,250,252,.86); border:1px solid rgba(255,255,255,.7); box-shadow:0 28px 80px rgba(15,23,42,.28); backdrop-filter:blur(26px); }
+        .dark .settings-panel { color:white; background:rgba(15,23,42,.88); border-color:rgba(255,255,255,.18); }
         .quick-setting { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 0; border-bottom:1px solid rgba(255,255,255,.08); }
-        .start-orb, .task-btn, .sync-btn { height:30px; border:1px solid rgba(255,255,255,.14); background:rgba(255,255,255,.09); color:white; border-radius:10px; display:flex; align-items:center; gap:8px; padding:0 10px; font-size:12px; transition:.18s ease; }
-        .task-btn.active, .task-btn:hover, .sync-btn:hover { background:rgba(59,130,246,.34); border-color:rgba(147,197,253,.35); }
+        .start-orb, .task-btn, .sync-btn { height:38px; min-width:38px; border:1px solid rgba(148,163,184,.24); background:rgba(255,255,255,.62); color:#0f172a; border-radius:8px; display:flex; align-items:center; justify-content:center; gap:8px; padding:0 10px; font-size:12px; transition:.16s ease; box-shadow:0 4px 18px rgba(15,23,42,.08); }
+        .dark .start-orb, .dark .task-btn, .dark .sync-btn { background:rgba(255,255,255,.09); color:white; border-color:rgba(255,255,255,.14); }
+        .task-btn.active, .task-btn:hover, .sync-btn:hover, .start-orb:hover { background:rgba(59,130,246,.22); border-color:rgba(37,99,235,.3); }
         .sync-btn.syncing svg { animation:spin 1s linear infinite; }
         .sidebar-overlay { display:none; } .sidebar-drawer { display:none; }
         .dk-topnav { display:none; }
-        @media (max-width:767px) { .desktop-icons { grid-auto-flow:column; top:auto; bottom:62px; max-width:100vw; overflow:auto; } .os-window { left:8px!important; top:8px!important; width:calc(100vw - 16px)!important; height:calc(100dvh - 66px)!important; } }
+        @media (max-width:767px) { .desktop-icons { grid-auto-flow:column; top:auto; bottom:64px; max-width:100vw; overflow:auto; } .os-window { max-width:calc(100vw - 16px); max-height:calc(100dvh - 76px); } .start-menu-grid { grid-template-columns:repeat(3, 1fr); } .sync-btn span, .task-btn span { display:none; } .taskbar { grid-template-columns:auto 1fr auto; padding-inline:8px; } }
       `}</style>
       <div className="os-desktop">
         <div className="desktop-icons">
@@ -1343,28 +1404,36 @@ const handleLogout = async () => {
         {windows.filter(w => !w.minimized).map(win => <DesktopWindow key={win.id} win={win} onFocus={focusWindow} onClose={closeWindow} onMinimize={minimizeWindow} onMaximize={maximizeWindow} onMove={moveWindow}>{pages[win.id]}</DesktopWindow>)}
       </div>
       {startMenuOpen && <div className="start-menu">
-        <div className="flex items-center justify-between gap-3"><div><div className="text-lg font-semibold">Smart Suspect Finder</div><div className="text-xs text-blue-200">Windows-style investigation workspace</div></div><button className="task-btn" onClick={() => setStartMenuOpen(false)}>×</button></div>
+        <input className="start-search" value="" readOnly placeholder="Type here to search investigations, reports, settings…" />
+        <div className="flex items-center justify-between gap-3 mt-4"><div className="text-sm font-semibold">Pinned</div><button className="text-xs px-2 py-1 rounded bg-white/50 dark:bg-white/10" onClick={openAllWindows}>Open all ›</button></div>
         <div className="start-menu-grid">
-          {desktopApps.map(app => <button key={app.id} className="start-tile" onClick={() => openWindow(app.id)}><span className="desktop-icon-badge !mx-0 !mb-2" style={{ background:`linear-gradient(135deg, ${app.accent}, #111827)`, width:38, height:38 }}><app.icon size={18}/></span><span className="block text-xs font-semibold">{app.title}</span></button>)}
-          <button className="start-tile" onClick={() => { setSettingsOpen(true); setStartMenuOpen(false); }}><span className="desktop-icon-badge !mx-0 !mb-2" style={{ background:"linear-gradient(135deg,#64748b,#111827)", width:38, height:38 }}><Settings size={18}/></span><span className="block text-xs font-semibold">Settings</span></button>
+          {desktopApps.map(app => <button key={app.id} className="start-tile" onClick={() => openWindow(app.id)}><span className="desktop-icon-badge" style={{ background:`linear-gradient(135deg, ${app.accent}, #111827)`, width:34, height:34, marginBottom:6 }}><app.icon size={16}/></span><span className="block text-[11px] font-medium leading-tight">{app.title}</span></button>)}
+          <button className="start-tile" onClick={() => { setSettingsOpen(true); setStartMenuOpen(false); }}><span className="desktop-icon-badge" style={{ background:"linear-gradient(135deg,#64748b,#111827)", width:34, height:34, marginBottom:6 }}><Settings size={16}/></span><span className="block text-[11px] font-medium">Settings</span></button>
         </div>
-        <div className="mt-4 pt-3 flex items-center justify-between" style={{ borderTop:"1px solid rgba(255,255,255,.1)" }}><span className="text-xs text-slate-300">Signed in as {user?.fullName || user?.displayName || "Operative"}</span><button className="task-btn" onClick={handleLogout}>Power</button></div>
+        <div className="mt-5"><div className="text-sm font-semibold mb-2">Recommended</div><div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs"><button className="text-left rounded-lg px-3 py-2 bg-white/55 dark:bg-white/10" onClick={() => openWindow("osint")}>New OSINT investigation</button><button className="text-left rounded-lg px-3 py-2 bg-white/55 dark:bg-white/10" onClick={() => openWindow("report")}>Generate latest report</button></div></div>
+        <div className="mt-4 pt-3 flex items-center justify-between" style={{ borderTop:"1px solid rgba(148,163,184,.24)" }}><span className="text-xs opacity-80">{user?.fullName || user?.displayName || "Operative"}</span><button className="task-btn" onClick={handleLogout}>Power</button></div>
       </div>}
       {settingsOpen && <div className="settings-panel">
         <div className="flex items-center justify-between mb-2"><div className="font-semibold">Quick Settings</div><button className="task-btn" onClick={() => setSettingsOpen(false)}>×</button></div>
         <div className="quick-setting"><span>Theme</span><button className="task-btn" onClick={() => setDark(!dark)}>{dark ? "Dark" : "Light"}</button></div>
         <div className="quick-setting"><span>Workspace sync</span><button className={cn("task-btn", syncingWorkspace && "syncing")} onClick={syncWorkspace}>{syncingWorkspace ? "Syncing" : "Sync now"}</button></div>
-        <div className="quick-setting"><span>Open windows</span><span className="text-sm text-blue-200">{windows.filter(w => !w.minimized).length}</span></div>
+        <div className="quick-setting"><span>Open windows</span><span className="text-sm text-blue-500 dark:text-blue-200">{windows.filter(w => !w.minimized).length}</span></div>
+        <div className="quick-setting"><span>Desktop</span><button className="task-btn" onClick={showDesktop}>Show</button></div>
       </div>}
       <div className="taskbar">
-        <button className="start-orb" onClick={() => setStartMenuOpen(v => !v)}><Shield size={16}/> Start</button>
-        <button className={cn("sync-btn", syncingWorkspace && "syncing")} onClick={syncWorkspace}><SyncInvestigationIcon size={20}/> {syncingWorkspace ? "Syncing…" : "Sync-Investigation"}</button>
-        <div className="flex-1 flex items-center gap-1 overflow-x-auto scrollbar-thin">
-          {windows.map(win => { const app = desktopApps.find(a => a.id === win.id); const Icon = app?.icon || LayoutDashboard; return <button key={win.id} className={cn("task-btn", !win.minimized && activePage === win.id && "active")} onClick={() => focusWindow(win.id)}><Icon size={14}/><span className="hidden sm:inline">{app?.title}</span></button>; })}
+        <div />
+        <div className="taskbar-center">
+          <button className="start-orb" onClick={() => setStartMenuOpen(v => !v)} title="Start"><Shield size={17}/></button>
+          <button className={cn("sync-btn", syncingWorkspace && "syncing")} onClick={syncWorkspace} title="Sync-Investigation"><SyncInvestigationIcon size={20}/><span>Sync-Investigation</span></button>
+          {windows.map(win => { const app = desktopApps.find(a => a.id === win.id); const Icon = app?.icon || LayoutDashboard; return <button key={win.id} className={cn("task-btn", !win.minimized && activePage === win.id && "active")} onClick={() => focusWindow(win.id)} title={app?.title}><Icon size={16}/><span className="hidden lg:inline">{app?.title}</span></button>; })}
         </div>
-        <button className="task-btn" onClick={() => setSettingsOpen(v => !v)}><Settings size={14}/><span className="hidden sm:inline">Settings</span></button>
-        <button className="task-btn" onClick={() => setDark(!dark)}>{dark ? <Sun size={14}/> : <Moon size={14}/>}</button>
-        <button className="task-btn" onClick={handleLogout}>Power</button>
+        <div className="taskbar-right">
+          <button className="task-btn" onClick={() => setSettingsOpen(v => !v)} title="Settings"><Settings size={15}/></button>
+          <button className="task-btn" onClick={() => setDark(!dark)} title="Theme">{dark ? <Sun size={15}/> : <Moon size={15}/>}</button>
+          <button className="task-btn" onClick={showDesktop} title="Show desktop">▭</button>
+          <div className="hidden sm:block text-right leading-tight px-2"><div className="text-[11px] font-semibold">{clock.toLocaleTimeString([], { hour:"2-digit", minute:"2-digit" })}</div><div className="text-[10px] opacity-70">{clock.toLocaleDateString([], { month:"short", day:"numeric" })}</div></div>
+          <button className="task-btn" onClick={handleLogout} title="Power">⏻</button>
+        </div>
       </div>
     </div>
   );
