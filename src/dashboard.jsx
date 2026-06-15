@@ -1105,6 +1105,75 @@ function ReportPage() {
   </div>;
 }
 
+
+
+const desktopApps = [
+  { id:"dashboard", title:"Dashboard", icon:LayoutDashboard, accent:"#2563eb" },
+  { id:"osint", title:"New Investigation", icon:Plus, accent:"#14b8a6" },
+  { id:"ai-analysis", title:"AI Analysis", icon:Brain, accent:"#7c3aed" },
+  { id:"graph", title:"Relationship Graph", icon:Network, accent:"#f97316" },
+  { id:"report", title:"Reports", icon:FileText, accent:"#dc2626" },
+];
+const defaultWindowRects = {
+  dashboard: { x: 34, y: 28, w: 1120, h: 720 },
+  osint: { x: 88, y: 58, w: 1080, h: 700 },
+  "ai-analysis": { x: 132, y: 86, w: 1040, h: 680 },
+  graph: { x: 164, y: 112, w: 1100, h: 690 },
+  report: { x: 204, y: 72, w: 1060, h: 700 },
+};
+function clampWindowRect(rect) {
+  const maxW = Math.max(360, window.innerWidth - 24);
+  const maxH = Math.max(320, window.innerHeight - 84);
+  const w = Math.min(rect.w, maxW);
+  const h = Math.min(rect.h, maxH);
+  return { ...rect, w, h, x: Math.max(8, Math.min(rect.x, window.innerWidth - w - 8)), y: Math.max(8, Math.min(rect.y, window.innerHeight - h - 58)) };
+}
+function SyncInvestigationIcon({ size=18 }) {
+  return <svg width={size} height={size} viewBox="0 0 48 48" fill="none" aria-hidden="true">
+    <rect x="6" y="8" width="28" height="28" rx="8" fill="url(#syncA)"/>
+    <path d="M31 15h6v6" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/>
+    <path d="M37 21a13 13 0 0 0-23-5" stroke="white" strokeWidth="3" strokeLinecap="round"/>
+    <path d="M17 33h-6v-6" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/>
+    <path d="M11 27a13 13 0 0 0 23 5" stroke="white" strokeWidth="3" strokeLinecap="round"/>
+    <circle cx="34" cy="34" r="8" fill="#22c55e" stroke="#dfffe9" strokeWidth="2"/>
+    <path d="m30.5 34 2.3 2.3 4.7-5" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
+    <defs><linearGradient id="syncA" x1="6" y1="8" x2="36" y2="38" gradientUnits="userSpaceOnUse"><stop stopColor="#2563eb"/><stop offset="1" stopColor="#7c3aed"/></linearGradient></defs>
+  </svg>;
+}
+function DesktopWindow({ win, children, onFocus, onClose, onMinimize, onMaximize, onMove }) {
+  const meta = desktopApps.find(a => a.id === win.id) || desktopApps[0];
+  const Icon = meta.icon;
+  const rect = win.maximized ? { x: 10, y: 10, w: window.innerWidth - 20, h: window.innerHeight - 74 } : win.rect;
+  const drag = useRef(null);
+  const startDrag = (e) => {
+    if (win.maximized || e.button !== 0) return;
+    onFocus(win.id);
+    drag.current = { sx:e.clientX, sy:e.clientY, x:win.rect.x, y:win.rect.y };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", stop);
+  };
+  const move = (e) => {
+    if (!drag.current) return;
+    onMove(win.id, { ...win.rect, x: drag.current.x + e.clientX - drag.current.sx, y: drag.current.y + e.clientY - drag.current.sy });
+  };
+  const stop = () => {
+    drag.current = null;
+    window.removeEventListener("pointermove", move);
+    window.removeEventListener("pointerup", stop);
+  };
+  return <section className={cn("os-window", win.maximized && "maximized")} onPointerDown={()=>onFocus(win.id)} style={{ left:rect.x, top:rect.y, width:rect.w, height:rect.h, zIndex:win.z }}>
+    <div className="os-titlebar" onPointerDown={startDrag} onDoubleClick={()=>onMaximize(win.id)}>
+      <div className="flex items-center gap-2 min-w-0"><span className="os-title-icon" style={{ background:`${meta.accent}22`, color:meta.accent }}><Icon size={14}/></span><span className="truncate text-xs font-semibold">{pageTitles[win.id]?.title || meta.title}</span></div>
+      <div className="os-window-controls">
+        <button className="os-control min" onClick={(e)=>{e.stopPropagation(); onMinimize(win.id);}} title="Minimize">—</button>
+        <button className="os-control max" onClick={(e)=>{e.stopPropagation(); onMaximize(win.id);}} title="Maximize">□</button>
+        <button className="os-control close" onClick={(e)=>{e.stopPropagation(); onClose(win.id);}} title="Close">×</button>
+      </div>
+    </div>
+    <div className="os-window-body scrollbar-thin">{children}</div>
+  </section>;
+}
+
 // ── Root App ──
 export default function App({ user }) {
 const handleLogout = async () => {
@@ -1153,6 +1222,33 @@ const handleLogout = async () => {
 
   const prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
   const [dark, setDark] = useState(prefersDark);
+  const [windows, setWindows] = useState([{ id:"dashboard", rect:defaultWindowRects.dashboard, minimized:false, maximized:false, z:10 }]);
+  const [zSeed, setZSeed] = useState(20);
+  const [syncingWorkspace, setSyncingWorkspace] = useState(false);
+
+  const focusWindow = (id) => {
+    setActivePage(id);
+    setZSeed(z => z + 1);
+    setWindows(ws => ws.map(w => w.id === id ? { ...w, minimized:false, z:zSeed + 1 } : w));
+  };
+  const openWindow = (id) => {
+    setActivePage(id);
+    setZSeed(z => z + 1);
+    setWindows(ws => {
+      const existing = ws.find(w => w.id === id);
+      if (existing) return ws.map(w => w.id === id ? { ...w, minimized:false, z:zSeed + 1 } : w);
+      const offset = ws.length * 24;
+      return [...ws, { id, rect:clampWindowRect({ ...defaultWindowRects[id], x:defaultWindowRects[id].x + offset, y:defaultWindowRects[id].y + offset }), minimized:false, maximized:false, z:zSeed + 1 }];
+    });
+  };
+  const closeWindow = (id) => setWindows(ws => ws.length > 1 ? ws.filter(w => w.id !== id) : ws.map(w => ({ ...w, minimized:true })));
+  const minimizeWindow = (id) => setWindows(ws => ws.map(w => w.id === id ? { ...w, minimized:true } : w));
+  const maximizeWindow = (id) => setWindows(ws => ws.map(w => w.id === id ? { ...w, maximized:!w.maximized } : w));
+  const moveWindow = (id, rect) => setWindows(ws => ws.map(w => w.id === id ? { ...w, rect:clampWindowRect(rect) } : w));
+  const syncWorkspace = () => {
+    setSyncingWorkspace(true);
+    window.setTimeout(() => setSyncingWorkspace(false), 1100);
+  };
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", dark);
@@ -1181,72 +1277,67 @@ const handleLogout = async () => {
   }, []);
 
   const pages = {
-    dashboard: <DashboardPage setActivePage={setActivePage} dark={dark} onStartInvestigation={handleStartInvestigation} onSelectInvestigation={handleSelectInvestigation} investigation={investigation} investigationLoading={investigationLoading} investigationError={investigationError} recentItems={recentInvestigationsFromStore} recentError={recentInvestigationError} recentLoaded={recentInvestigationsLoaded}/>,
-    osint: <OSINTPage setActivePage={setActivePage} dark={dark} investigation={investigation} investigationLoading={investigationLoading} investigationError={investigationError} onStartInvestigation={handleStartInvestigation}/>,
-    "ai-analysis": <AIAnalysisPage setActivePage={setActivePage} dark={dark}/>,
-    graph: <GraphPage setActivePage={setActivePage} dark={dark}/>,
+    dashboard: <DashboardPage setActivePage={openWindow} dark={dark} onStartInvestigation={handleStartInvestigation} onSelectInvestigation={handleSelectInvestigation} investigation={investigation} investigationLoading={investigationLoading} investigationError={investigationError} recentItems={recentInvestigationsFromStore} recentError={recentInvestigationError} recentLoaded={recentInvestigationsLoaded}/>,
+    osint: <OSINTPage setActivePage={openWindow} dark={dark} investigation={investigation} investigationLoading={investigationLoading} investigationError={investigationError} onStartInvestigation={handleStartInvestigation}/>,
+    "ai-analysis": <AIAnalysisPage setActivePage={openWindow} dark={dark}/>,
+    graph: <GraphPage setActivePage={openWindow} dark={dark}/>,
     report: <ReportPage dark={dark}/>,
   };
 
   return (
-    <div style={{ display:"flex", height:"100dvh", width:"100vw", overflow:"hidden", background:"var(--bg-page)", fontFamily:"'Inter', system-ui, sans-serif" }}>
+    <div className="os-shell" style={{ fontFamily:"'Inter', system-ui, sans-serif" }}>
       <style>{`
         *, *::before, *::after { box-sizing: border-box; }
-        :root {
-          --bg-page: #f8fafc; --bg-card: #ffffff; --bg-sidebar: #0f172a; --bg-topnav: #ffffff;
-          --bg-input: #f1f5f9; --bg-hover: #f8fafc; --bg-active: rgba(59,130,246,0.15);
-          --border: #e2e8f0; --border-inner: #f1f5f9; --text-primary: #0f172a; --text-sec: #475569;
-          --text-muted: #94a3b8; --sidebar-border: rgba(255,255,255,0.07);
-          --sidebar-badge-bg: rgba(239,68,68,0.1); --sidebar-badge-border: rgba(239,68,68,0.2);
-        }
-        .dark {
-          --bg-page: #0d1117; --bg-card: #161b22; --bg-sidebar: #0d1117; --bg-topnav: #161b22;
-          --bg-input: #21262d; --bg-hover: #21262d; --bg-active: rgba(59,130,246,0.2);
-          --border: #30363d; --border-inner: #21262d; --text-primary: #e6edf3; --text-sec: #8b949e;
-          --text-muted: #6e7681; --sidebar-border: rgba(255,255,255,0.06);
-          --sidebar-badge-bg: rgba(239,68,68,0.12); --sidebar-badge-border: rgba(239,68,68,0.25);
-        }
-        .dark .bg-white, .dark .bg-slate-50 { background: var(--bg-card) !important; }
-        .dark .bg-slate-100 { background: var(--bg-hover) !important; }
-        .dark .text-slate-800, .dark .text-slate-700 { color: var(--text-primary) !important; }
-        .dark .text-slate-600, .dark .text-slate-500 { color: var(--text-sec) !important; }
-        .dark .text-slate-400 { color: var(--text-muted) !important; }
+        :root { --bg-page:#0f172a; --bg-card:#ffffff; --bg-sidebar:rgba(15,23,42,.82); --bg-topnav:rgba(255,255,255,.72); --bg-input:#f1f5f9; --bg-hover:#f8fafc; --bg-active:rgba(59,130,246,.18); --border:#e2e8f0; --border-inner:#f1f5f9; --text-primary:#0f172a; --text-sec:#475569; --text-muted:#94a3b8; --sidebar-border:rgba(255,255,255,.1); --sidebar-badge-bg:rgba(239,68,68,.1); --sidebar-badge-border:rgba(239,68,68,.22); }
+        .dark { --bg-card:#161b22; --bg-sidebar:rgba(13,17,23,.86); --bg-topnav:rgba(22,27,34,.75); --bg-input:#21262d; --bg-hover:#21262d; --bg-active:rgba(59,130,246,.24); --border:#30363d; --border-inner:#21262d; --text-primary:#e6edf3; --text-sec:#8b949e; --text-muted:#6e7681; --sidebar-border:rgba(255,255,255,.08); --sidebar-badge-bg:rgba(239,68,68,.12); --sidebar-badge-border:rgba(239,68,68,.25); }
+        .dark .bg-white, .dark .bg-slate-50 { background: var(--bg-card) !important; } .dark .bg-slate-100 { background: var(--bg-hover) !important; }
+        .dark .text-slate-800, .dark .text-slate-700 { color: var(--text-primary) !important; } .dark .text-slate-600, .dark .text-slate-500 { color: var(--text-sec) !important; } .dark .text-slate-400 { color: var(--text-muted) !important; }
         .dark input, .dark textarea { background: var(--bg-input) !important; border-color: var(--border) !important; color: var(--text-primary) !important; }
-        .dark .hover\\:bg-slate-50:hover { background: var(--bg-hover) !important; }
-        .dark table tr:hover { background: rgba(255,255,255,0.03) !important; }
-        @keyframes spin { to { transform: rotate(360deg); } }
-        @keyframes pulse { 0%,100%{opacity:1}50%{opacity:.5} }
-        .animate-spin { animation: spin 1s linear infinite; }
-        .animate-pulse { animation: pulse 2s cubic-bezier(.4,0,.6,1) infinite; }
-        .scrollbar-thin { scrollbar-width: thin; }
-        .scrollbar-thin::-webkit-scrollbar { width: 5px; }
-        .scrollbar-thin::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 9999px; }
-        .sidebar-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:40; }
-        .sidebar-overlay.open { display:block; }
-        @media (max-width:767px) {
-          .sidebar-drawer { position:fixed !important; left:-220px; top:0; bottom:0; z-index:50; transition:left 0.25s ease; width:220px !important; min-width:220px !important; }
-          .sidebar-drawer.open { left:0 !important; }
-          .menu-btn { display:flex !important; }
-          .stepper-bar { display:none !important; }
-        }
-        @media (min-width:768px) {
-          .menu-btn { display:none !important; }
-          .sidebar-drawer { position:relative !important; left:0 !important; }
-        }
+        @keyframes spin { to { transform: rotate(360deg); } } @keyframes pulse { 0%,100%{opacity:1}50%{opacity:.5} }
+        .animate-spin { animation: spin 1s linear infinite; } .animate-pulse { animation: pulse 2s cubic-bezier(.4,0,.6,1) infinite; }
+        .scrollbar-thin { scrollbar-width: thin; } .scrollbar-thin::-webkit-scrollbar { width: 6px; height: 6px; } .scrollbar-thin::-webkit-scrollbar-thumb { background: rgba(148,163,184,.65); border-radius: 999px; }
+        .os-shell { position:fixed; inset:0; overflow:hidden; color:var(--text-primary); background: radial-gradient(circle at 20% 15%, rgba(59,130,246,.45), transparent 28%), radial-gradient(circle at 80% 10%, rgba(124,58,237,.34), transparent 26%), linear-gradient(135deg,#0f172a,#172554 48%,#111827); }
+        .os-desktop { position:absolute; inset:0 0 48px 0; overflow:hidden; }
+        .os-desktop::after { content:""; position:absolute; inset:0; background-image:linear-gradient(rgba(255,255,255,.045) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.045) 1px, transparent 1px); background-size:42px 42px; mask-image:linear-gradient(to bottom, black, transparent 85%); pointer-events:none; }
+        .desktop-icons { position:absolute; z-index:2; top:22px; left:18px; display:grid; gap:14px; }
+        .desktop-icon { width:92px; padding:10px 6px; color:white; border:1px solid transparent; border-radius:14px; text-shadow:0 1px 10px rgba(0,0,0,.4); transition:.18s ease; }
+        .desktop-icon:hover { background:rgba(255,255,255,.13); border-color:rgba(255,255,255,.18); transform:translateY(-1px); }
+        .desktop-icon-badge { width:46px; height:46px; margin:0 auto 7px; border-radius:14px; display:flex; align-items:center; justify-content:center; box-shadow:0 14px 34px rgba(0,0,0,.25), inset 0 1px rgba(255,255,255,.35); }
+        .os-window { position:absolute; overflow:hidden; border-radius:14px; background:var(--bg-card); border:1px solid rgba(255,255,255,.34); box-shadow:0 28px 70px rgba(2,6,23,.42), 0 0 0 1px rgba(15,23,42,.12); backdrop-filter:blur(18px); transition:box-shadow .18s ease, transform .18s ease; }
+        .os-window.maximized { border-radius:12px; }
+        .os-titlebar { height:38px; display:flex; align-items:center; justify-content:space-between; padding:0 8px 0 12px; background:linear-gradient(180deg, rgba(255,255,255,.78), rgba(241,245,249,.62)); border-bottom:1px solid var(--border); cursor:grab; user-select:none; color:var(--text-primary); }
+        .dark .os-titlebar { background:linear-gradient(180deg, rgba(30,41,59,.9), rgba(15,23,42,.78)); }
+        .os-title-icon { width:24px; height:24px; border-radius:7px; display:flex; align-items:center; justify-content:center; }
+        .os-window-controls { display:flex; align-items:center; gap:2px; } .os-control { width:34px; height:28px; border:0; background:transparent; border-radius:7px; color:var(--text-sec); font-weight:700; line-height:1; } .os-control:hover { background:rgba(148,163,184,.16); } .os-control.close:hover { background:#ef4444; color:white; }
+        .os-window-body { height:calc(100% - 38px); overflow:auto; background:var(--bg-page); }
+        .taskbar { position:absolute; left:10px; right:10px; bottom:8px; height:42px; z-index:10000; display:flex; align-items:center; gap:8px; padding:6px; border:1px solid rgba(255,255,255,.22); border-radius:14px; background:rgba(15,23,42,.72); backdrop-filter:blur(22px); box-shadow:0 18px 60px rgba(0,0,0,.32); }
+        .start-orb, .task-btn, .sync-btn { height:30px; border:1px solid rgba(255,255,255,.14); background:rgba(255,255,255,.09); color:white; border-radius:10px; display:flex; align-items:center; gap:8px; padding:0 10px; font-size:12px; transition:.18s ease; }
+        .task-btn.active, .task-btn:hover, .sync-btn:hover { background:rgba(59,130,246,.34); border-color:rgba(147,197,253,.35); }
+        .sync-btn.syncing svg { animation:spin 1s linear infinite; }
+        .sidebar-overlay { display:none; } .sidebar-drawer { display:none; }
+        .dk-topnav { display:none; }
+        @media (max-width:767px) { .desktop-icons { grid-auto-flow:column; top:auto; bottom:62px; max-width:100vw; overflow:auto; } .os-window { left:8px!important; top:8px!important; width:calc(100vw - 16px)!important; height:calc(100dvh - 66px)!important; } }
       `}</style>
-      <Sidebar activePage={activePage} setActivePage={setActivePage} sidebarOpen={sidebarOpen} setSidebarOpen={setSidebarOpen} user={user} onLogout={handleLogout}/>
-      <div style={{ display:"flex", flexDirection:"column", flex:1, minWidth:0, overflow:"hidden" }}>
-        <TopNav activePage={activePage} setActivePage={setActivePage} dark={dark} setDark={setDark} setSidebarOpen={setSidebarOpen} user={user} onLogout={handleLogout}/>
-        {investigationError && investigationError.includes("Firestore save failed") && (
-          <div style={{ background:"#fef2f2", borderBottom:"1px solid #fecaca", padding:"8px 16px", display:"flex", alignItems:"center", justifyContent:"space-between", gap:8, flexShrink:0 }}>
-            <span style={{ fontSize:12, color:"#b91c1c", fontWeight:500 }}>⚠️ {investigationError}</span>
-            <button onClick={() => setInvestigationError("")} style={{ fontSize:11, color:"#b91c1c", background:"none", border:"none", cursor:"pointer", padding:"2px 6px", borderRadius:4, flexShrink:0 }}>Dismiss</button>
-          </div>
-        )}
-        <main style={{ flex:1, overflowY:"auto", overflowX:"hidden", background:"var(--bg-page)" }} className="scrollbar-thin">
-          {pages[activePage]}
-        </main>
+      <div className="os-desktop">
+        <div className="desktop-icons">
+          {desktopApps.map(app => <button key={app.id} className="desktop-icon" onDoubleClick={() => openWindow(app.id)} onClick={() => openWindow(app.id)}>
+            <span className="desktop-icon-badge" style={{ background:`linear-gradient(135deg, ${app.accent}, #111827)` }}><app.icon size={22}/></span>
+            <span className="block text-[11px] leading-tight font-medium">{app.title}</span>
+          </button>)}
+        </div>
+        {investigationError && investigationError.includes("Firestore save failed") && <div style={{ position:"absolute", top:12, right:16, zIndex:9999, maxWidth:560, background:"#fef2f2", border:"1px solid #fecaca", borderRadius:12, padding:"10px 12px", display:"flex", alignItems:"center", gap:8 }}><span style={{ fontSize:12, color:"#b91c1c", fontWeight:500 }}>⚠️ {investigationError}</span><button onClick={() => setInvestigationError("")} style={{ fontSize:11, color:"#b91c1c" }}>Dismiss</button></div>}
+        {windows.filter(w => !w.minimized).map(win => <DesktopWindow key={win.id} win={win} onFocus={focusWindow} onClose={closeWindow} onMinimize={minimizeWindow} onMaximize={maximizeWindow} onMove={moveWindow}>{pages[win.id]}</DesktopWindow>)}
+      </div>
+      <div className="taskbar">
+        <button className="start-orb" onClick={() => openWindow("dashboard")}><Shield size={16}/> Smart Suspect OS</button>
+        <button className={cn("sync-btn", syncingWorkspace && "syncing")} onClick={syncWorkspace}><SyncInvestigationIcon size={20}/> {syncingWorkspace ? "Syncing…" : "Sync-Investigation"}</button>
+        <div className="flex-1 flex items-center gap-1 overflow-x-auto scrollbar-thin">
+          {windows.map(win => { const app = desktopApps.find(a => a.id === win.id); const Icon = app?.icon || LayoutDashboard; return <button key={win.id} className={cn("task-btn", !win.minimized && activePage === win.id && "active")} onClick={() => focusWindow(win.id)}><Icon size={14}/><span className="hidden sm:inline">{app?.title}</span></button>; })}
+        </div>
+        <button className="task-btn" onClick={() => setDark(!dark)}>{dark ? <Sun size={14}/> : <Moon size={14}/>}</button>
+        <button className="task-btn" onClick={handleLogout}>Sign out</button>
       </div>
     </div>
   );
+
 }
