@@ -79,11 +79,11 @@ export async function saveInvestigation(user, investigation) {
 
   typeLabel: titleCase(raw.type),
 
-  sourceCounts: {
-    findings: (raw.findings || []).length,
-    pages: (raw.crawledPages || []).length
-  },
-
+sourceCounts: {
+  findings: (raw.findings || []).length,
+  pages: (raw.crawledPages || []).length
+},
+    
   status: "Completed",
   risk: riskFromConfidence(confidence),
   platforms: getPlatforms(investigation),
