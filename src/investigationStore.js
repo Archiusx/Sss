@@ -72,18 +72,26 @@ export async function saveInvestigation(user, investigation) {
   const cleanData = jsonClean(raw);
 
   const docData = {
-    ownerId: user.uid,
-    caseId: investigation.id,
-    target: raw.target,
-    type: raw.type,
-    status: "Completed",
-    risk: riskFromConfidence(confidence),
-    platforms: getPlatforms(investigation),
-    summary: str(investigation.gemini?.summary || "OSINT completed", 20000),
-    data: cleanData,
-    updatedAt: serverTimestamp(),
-    createdAt: serverTimestamp()
-  };
+  ownerId: user.uid,
+  caseId: investigation.id,
+  target: raw.target,
+  type: raw.type,
+
+  typeLabel: titleCase(raw.type),
+
+  sourceCounts: {
+    findings: (raw.findings || []).length,
+    pages: (raw.crawledPages || []).length
+  },
+
+  status: "Completed",
+  risk: riskFromConfidence(confidence),
+  platforms: getPlatforms(investigation),
+  summary: str(investigation.gemini?.summary || "OSINT completed", 20000),
+  data: cleanData,
+  updatedAt: serverTimestamp(),
+  createdAt: serverTimestamp()
+};
 
   const ref = doc(db, "users", user.uid, "investigations", investigation.id);
 
