@@ -45,7 +45,8 @@ function getPlatforms(inv) {
 function str(v, max = 2000) { return String(v ?? "").slice(0, max); }
 function num(v) { return Number(v) || 0; }
 
-// save functional 
+// save functional
+
 const ref = doc(db, "users", user.uid);
 
 try {
@@ -73,14 +74,16 @@ try {
         status: "Completed",
         risk: riskFromConfidence(confidence),
         platforms: getPlatforms(investigation),
+
         summary: str(
-          investigation.gemini?.summary || "OSINT completed",
+          investigation?.gemini?.summary || "OSINT completed",
           20000
         ),
 
         data: cleanData,
-        updatedAt: serverTimestamp(),
-        createdAt: serverTimestamp()
+
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
       }
     },
     { merge: true }
@@ -92,12 +95,14 @@ try {
 
 } catch (err) {
   console.error("[CyIntel] Firestore save FAILED:", err);
+
   alert(
     "Firestore Error:\n" +
     (err?.code || "") +
     "\n" +
     (err?.message || JSON.stringify(err))
   );
+
   throw err;
 }
 
