@@ -50,55 +50,64 @@ function num(v) { return Number(v) || 0; }
 // =============================
 
 export async function saveInvestigation(user, investigation) {
-  if (!user?.uid) throw new Error("Sign in before saving.");
-  if (!investigation?.id) throw new Error("Investigation has no ID.");
+if (!user?.uid) throw new Error("Sign in before saving.");
+if (!investigation?.id) throw new Error("Investigation has no ID.");
 
-  const confidence = num(investigation?.stats?.confidence);
+const confidence = num(investigation?.stats?.confidence);
 
-  const raw = {
-    id: str(investigation.id, 40),
-    target: str(investigation.target, 500),
-    type: str(investigation.type, 40),
-    status: "Completed",
-    startedAt: str(investigation.startedAt || new Date().toISOString(), 40),
-    stats: investigation.stats || {},
-    metadata: investigation.metadata || [],
-    findings: (investigation.findings || []).slice(0, 15),
-    crawledPages: (investigation.crawledPages || []).slice(0, 6),
-    logs: (investigation.logs || []).slice(0, 20),
-    gemini: investigation.gemini || {},
-  };
+const raw = {
+id: str(investigation.id, 40),
+target: str(investigation.target, 500),
+type: str(investigation.type, 40),
+status: "Completed",
+startedAt: str(investigation.startedAt || new Date().toISOString(), 40),
+stats: investigation.stats || {},
+metadata: investigation.metadata || [],
+findings: (investigation.findings || []).slice(0, 15),
+crawledPages: (investigation.crawledPages || []).slice(0, 6),
+logs: (investigation.logs || []).slice(0, 20),
+gemini: investigation.gemini || {},
+};
 
-  const cleanData = jsonClean(raw);
+const cleanData = jsonClean(raw);
 
-  const docData = {
-  ownerId: user.uid,
-  caseId: investigation.id,
-  target: raw.target,
-  type: raw.type,
+const docData = {
+ownerId: user.uid,
+caseId: investigation.id,
+target: raw.target,
+type: raw.type,
 
-  typeLabel: titleCase(raw.type),
+typeLabel: titleCase(raw.type),
 
 sourceCounts: {
   findings: (raw.findings || []).length,
   pages: (raw.crawledPages || []).length
 },
-    
-  status: "Completed",
-  risk: riskFromConfidence(confidence),
-  platforms: getPlatforms(investigation),
-  summary: str(investigation.gemini?.summary || "OSINT completed", 20000),
-  data: cleanData,
-  updatedAt: serverTimestamp(),
-  createdAt: serverTimestamp()
+
+status: "Completed",
+risk: riskFromConfidence(confidence),
+platforms: getPlatforms(investigation),
+summary: str(
+  investigation.gemini?.summary || "OSINT completed",
+  20000
+),
+data: cleanData,
+updatedAt: serverTimestamp(),
+createdAt: serverTimestamp()
+
 };
 
-  const ref = doc(db, "users", user.uid, "investigations", investigation.id);
+const ref = doc(
+db,
+"users",
+user.uid,
+"investigations",
+investigation.id
+);
 
-  await setDoc(ref, docData, { merge: true });
-  return investigation.id;
+await setDoc(ref, docData, { merge: true });
+return investigation.id;
 }
-
 // =============================
 // SOCMINT GRAPH ENGINE
 // =============================
