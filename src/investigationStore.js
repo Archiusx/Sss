@@ -54,6 +54,9 @@ export async function saveInvestigation(user, investigation) {
   const ref = doc(db, "users", user.uid);
 
   try {
+    console.log("[CyIntel] Saving investigation...");
+    console.log("[CyIntel] User UID:", user.uid);
+
     await setDoc(
       ref,
       {
