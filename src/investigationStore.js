@@ -105,8 +105,21 @@ user.uid,
 investigation.id
 );
 
+try {
+console.log("[CyIntel] Saving investigation...");
+console.log("[CyIntel] User UID:", user.uid);
+console.log("[CyIntel] Firestore Path:", "users/${user.uid}/investigations/${investigation.id}");
+
 await setDoc(ref, docData, { merge: true });
+
+console.log("[CyIntel] Firestore save SUCCESS");
 return investigation.id;
+
+} catch (err) {
+console.error("[CyIntel] Firestore save FAILED:", err);
+alert("Firestore Error: " + (err?.message || JSON.stringify(err)));
+throw err;
+}
 }
 // =============================
 // SOCMINT GRAPH ENGINE
