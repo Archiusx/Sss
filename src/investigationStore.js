@@ -51,7 +51,13 @@ export async function saveInvestigation(user, investigation) {
   if (!user?.uid) throw new Error("Sign in before saving.");
   if (!investigation?.id) throw new Error("Investigation has no ID.");
 
-  const ref = doc(db, "users", user.uid);
+  const ref = doc(
+    db,
+    "users",
+    user.uid,
+    "investigations",
+    investigation.id
+  );
 
   try {
     console.log("[CyIntel] Saving investigation...");
@@ -60,9 +66,10 @@ export async function saveInvestigation(user, investigation) {
     await setDoc(
       ref,
       {
-        uid: user.uid,
-        lastLogin: serverTimestamp(),
-        lastInvestigation: investigation
+        ...investigation,
+        ownerId: user.uid,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
       },
       { merge: true }
     );
