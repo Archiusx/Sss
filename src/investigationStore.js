@@ -47,63 +47,31 @@ function num(v) { return Number(v) || 0; }
 
 // save functional
 
-const ref = doc(db, "users", user.uid);
+export async function saveInvestigation(user, investigation) {
+  if (!user?.uid) throw new Error("Sign in before saving.");
+  if (!investigation?.id) throw new Error("Investigation has no ID.");
 
-try {
-  console.log("[CyIntel] Saving investigation...");
-  console.log("[CyIntel] User UID:", user.uid);
+  const ref = doc(db, "users", user.uid);
 
-  await setDoc(
-    ref,
-    {
-      uid: user.uid,
-      lastLogin: serverTimestamp(),
+  try {
+    await setDoc(
+      ref,
+      {
+        uid: user.uid,
+        lastLogin: serverTimestamp(),
+        lastInvestigation: investigation
+      },
+      { merge: true }
+    );
 
-      lastInvestigation: {
-        ownerId: user.uid,
-        caseId: investigation.id,
-        target: raw.target,
-        type: raw.type,
-        typeLabel: titleCase(raw.type),
+    console.log("[CyIntel] Firestore save SUCCESS");
 
-        sourceCounts: {
-          findings: (raw.findings || []).length,
-          pages: (raw.crawledPages || []).length
-        },
+    return investigation.id;
 
-        status: "Completed",
-        risk: riskFromConfidence(confidence),
-        platforms: getPlatforms(investigation),
-
-        summary: str(
-          investigation?.gemini?.summary || "OSINT completed",
-          20000
-        ),
-
-        data: cleanData,
-
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp()
-      }
-    },
-    { merge: true }
-  );
-
-  console.log("[CyIntel] Firestore save SUCCESS");
-
-  return investigation.id;
-
-} catch (err) {
-  console.error("[CyIntel] Firestore save FAILED:", err);
-
-  alert(
-    "Firestore Error:\n" +
-    (err?.code || "") +
-    "\n" +
-    (err?.message || JSON.stringify(err))
-  );
-
-  throw err;
+  } catch (err) {
+    console.error("[CyIntel] Firestore save FAILED:", err);
+    throw err;
+  }
 }
 
 // =============================
