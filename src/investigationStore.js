@@ -97,22 +97,38 @@ createdAt: serverTimestamp()
 
 };
 
-const ref = doc(db, "users", user.uid);
+const ref = doc(
+  db,
+  "users",
+  user.uid,
+  "investigations",
+  investigation.id
+);
 
 try {
-console.log("[CyIntel] Saving investigation...");
-console.log("[CyIntel] User UID:", user.uid);
-console.log("[CyIntel] DocData:", docData);
+  console.log("[CyIntel] Saving investigation...");
+  console.log("[CyIntel] User UID:", user.uid);
+  console.log("[CyIntel] DocData:", docData);
+  console.log(
+    "[CyIntel] Path:",
+    `users/${user.uid}/investigations/${investigation.id}`
+  );
 
-await setDoc(ref, docData, { merge: true });
-console.log("[CyIntel] Firestore save SUCCESS");
+  await setDoc(ref, docData, { merge: true });
 
-return investigation.id;
+  console.log("[CyIntel] Firestore save SUCCESS");
+
+  return investigation.id;
 
 } catch (err) {
-console.error("[CyIntel] Firestore save FAILED:", err);
-alert("Firestore Error: " + (err?.message || JSON.stringify(err)));
-throw err;
+  console.error("[CyIntel] Firestore save FAILED:", err);
+  alert(
+    "Firestore Error:\n" +
+    (err?.code || "") +
+    "\n" +
+    (err?.message || JSON.stringify(err))
+  );
+  throw err;
 }
 // =============================
 // SOCMINT GRAPH ENGINE
