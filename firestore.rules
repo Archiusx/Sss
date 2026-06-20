@@ -1,0 +1,56 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    // ── User profiles ─────────────────────────────────────────────────────────
+    match /users/{uid} {
+      allow get:  if isOwner(uid);
+      allow list: if false;
+
+      allow create: if isOwner(uid);
+
+      allow update: if isOwner(uid)
+        && (
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny(['uid'])
+          || request.resource.data.uid == resource.data.uid
+        );
+
+      allow delete: if false;
+
+      // ── Investigations sub-collection ──────────────────────────────────────
+      // NOTE: the schema below matches exactly what investigationStore.js /
+      // osintTools.js actually write. Keep these two files and this rule in
+      // sync — if you add/rename a field in the saved object, update this too,
+      // otherwise every write will be silently rejected with permission-denied.
+      match /investigations/{investigationId} {
+        allow get, list: if isOwner(uid);
+
+        allow create, update: if isOwner(uid)
+          && request.resource.data.ownerId == uid
+          && request.resource.data.id is string
+          && request.resource.data.id.size() > 0
+          && request.resource.data.target is string
+          && request.resource.data.target.size() > 0
+          && request.resource.data.target.size() <= 2048
+          && request.resource.data.type is string
+          && request.resource.data.status is string;
+
+        allow delete: if isOwner(uid);
+      }
+    }
+
+    // Catch-all deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
